@@ -1,0 +1,63 @@
+﻿<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>File System Access Spike</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main>
+    <header>
+      <p class="eyebrow">DevCycle002 Spike</p>
+      <h1>File System Access API Behavior</h1>
+      <p class="summary">Use this page in Microsoft Edge to verify whether a Manifest V3 extension page can persist and reuse a project folder handle, create the project structure, write a sample JSON listing, and append to <code>job-tracking.csv</code>.</p>
+    </header>
+
+    <section class="panel">
+      <h2>Project Folder</h2>
+      <div class="status-grid">
+        <div>
+          <span class="label">API available</span>
+          <strong id="apiStatus">Checking...</strong>
+        </div>
+        <div>
+          <span class="label">Handle stored</span>
+          <strong id="handleStatus">Checking...</strong>
+        </div>
+        <div>
+          <span class="label">Permission</span>
+          <strong id="permissionStatus">Unknown</strong>
+        </div>
+      </div>
+      <div class="button-row">
+        <button id="selectFolderButton" type="button">Select Project Folder</button>
+        <button id="checkPermissionButton" type="button">Check Permission</button>
+        <button id="requestPermissionButton" type="button">Request Permission</button>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Storage Tests</h2>
+      <div class="button-row">
+        <button id="validateStructureButton" type="button">Validate/Create Structure</button>
+        <button id="writeJsonButton" type="button">Write Sample JSON</button>
+        <button id="appendCsvButton" type="button">Append CSV Row</button>
+        <button id="runAllButton" type="button" class="primary">Run All Write Tests</button>
+      </div>
+      <p class="hint">CSV output uses UTF-8 with BOM for new files, CRLF line endings, and RFC 4180-style escaping.</p>
+    </section>
+
+    <section class="panel">
+      <h2>Diagnostics</h2>
+      <div class="button-row">
+        <button id="clearLogButton" type="button">Clear Log</button>
+        <button id="forgetFolderButton" type="button">Forget Stored Handle</button>
+      </div>
+      <pre id="log" aria-live="polite"></pre>
+    </section>
+  </main>
+
+  <script src="options.js"></script>
+</body>
+</html>

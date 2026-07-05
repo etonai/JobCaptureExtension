@@ -1,0 +1,10 @@
+﻿{
+  "manifest_version": 3,
+  "name": "Job Capture File System Spike",
+  "version": "0.0.1",
+  "description": "DevCycle002 spike for testing File System Access API behavior in Microsoft Edge extension pages.",
+  "options_page": "options.html",
+  "action": {
+    "default_title": "File System Spike"
+  }
+}

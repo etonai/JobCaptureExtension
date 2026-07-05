@@ -98,7 +98,7 @@ Anticipated Manifest V3 permissions and access needs:
 - `storage` for extension configuration and lightweight state
 - `activeTab` and/or `scripting` for active-tab capture
 - host access for `https://www.linkedin.com/*` if content scripts are registered persistently
-- File System Access API usage from an extension page or options page, subject to Edge feasibility verification
+- File System Access API usage from an extension page or options page
 
 ## Project Folder Layout
 
@@ -454,20 +454,19 @@ Known conflict resolved here: earlier documents mention automatic description ex
 
 ## Remaining Open Questions
 
-These should be resolved early in DevCycle002 or before storage implementation begins:
+The DevCycle002 spike verified that Microsoft Edge supports the planned File System Access API project folder workflow from the extension context. Remaining open questions are:
 
-1. **Edge File System Access API feasibility.** Verify that Microsoft Edge supports the chosen File System Access API flow from the extension context.
-2. **Minimum supported Edge version.** Define the minimum Edge version after feasibility testing.
-3. **Exact source layout and toolchain.** Decide plain JavaScript vs. TypeScript, bundling approach, and test runner.
-4. **Precise narrow page detector.** Lock the first supported URL/DOM conditions after inspecting live pages and fixtures.
-5. **Project folder change UX.** Confirm whether changing folders simply affects future saves, as recommended here, or needs extra warnings.
+1. **Minimum supported Edge version.** The user reported all DC2 manual tests passed, but the exact Edge version tested was not recorded.
+2. **Exact source layout and toolchain.** Decide plain JavaScript vs. TypeScript, bundling approach, and test runner.
+3. **Precise narrow page detector.** Lock the first supported URL/DOM conditions after inspecting live pages and fixtures.
+4. **Project folder change UX.** Confirm whether changing folders simply affects future saves, as recommended here, or needs extra warnings.
 
 ## Implementation Sequence Guidance
 
 Recommended next DevCycles:
 
-1. Verify Edge File System Access API behavior with a small spike.
-2. Build the Manifest V3 shell, popup, options page, and active-tab capture message flow.
-3. Implement parser fixtures and deterministic extraction.
-4. Implement project folder setup, JSON saving, and CSV append.
-5. Polish review UI, errors, and manual Edge testing.
+1. Build the Manifest V3 shell, popup, options page, and active-tab capture message flow.
+2. Implement parser fixtures and deterministic extraction.
+3. Implement project folder setup, JSON saving, and CSV append using the File System Access API flow verified in DevCycle002.
+4. Polish review UI, errors, and manual Edge testing.
+
