@@ -1,4 +1,4 @@
-﻿# LinkedIn Job Capture Extension Design
+# LinkedIn Job Capture Extension Design
 
 **Status:** Draft for Review
 **Created:** 2026-07-05
@@ -313,7 +313,7 @@ If multiple plausible candidates remain, choose the highest-confidence value for
 LinkedIn may display these together, such as:
 
 ```text
-Seattle, WA · Reposted 3 hours ago · Over 100 people clicked apply
+Seattle, WA Â· Reposted 3 hours ago Â· Over 100 people clicked apply
 ```
 
 For MVP, preserve visible text rather than deriving normalized values. Use the visible separator order as a heuristic, but do not convert applicant count to a number or posted text to a date.
@@ -457,9 +457,8 @@ Known conflict resolved here: earlier documents mention automatic description ex
 The DevCycle002 spike verified that Microsoft Edge supports the planned File System Access API project folder workflow from the extension context. Remaining open questions are:
 
 1. **Minimum supported Edge version.** The user reported all DC2 manual tests passed, but the exact Edge version tested was not recorded.
-2. **Exact source layout and toolchain.** Decide plain JavaScript vs. TypeScript, bundling approach, and test runner.
-3. **Precise narrow page detector.** Lock the first supported URL/DOM conditions after inspecting live pages and fixtures.
-4. **Project folder change UX.** Confirm whether changing folders simply affects future saves, as recommended here, or needs extra warnings.
+2. **Precise narrow page detector.** DC3 implemented a conservative first detector; DevCycle004 should refine it against parser fixtures and live pages.
+3. **Project folder change UX.** Confirm whether changing folders simply affects future saves, as recommended here, or needs extra warnings.
 
 ## Implementation Sequence Guidance
 
@@ -469,4 +468,6 @@ Recommended next DevCycles:
 2. Implement parser fixtures and deterministic extraction.
 3. Implement project folder setup, JSON saving, and CSV append using the File System Access API flow verified in DevCycle002.
 4. Polish review UI, errors, and manual Edge testing.
+
+
 

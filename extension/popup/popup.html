@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LinkedIn Job Capture</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <main class="popup-shell">
+    <header class="header">
+      <div>
+        <p class="eyebrow">LinkedIn Job Capture</p>
+        <h1>Capture Job</h1>
+      </div>
+      <button id="optionsButton" class="icon-button" type="button" title="Open options" aria-label="Open options">Settings</button>
+    </header>
+
+    <section class="notice" aria-label="Capture reminder">
+      Manually expand the LinkedIn job description before capture when it is collapsed.
+    </section>
+
+    <section id="statusPanel" class="status-panel ready" aria-live="polite">
+      <strong id="statusTitle">Ready</strong>
+      <p id="statusMessage">Open a LinkedIn job page, then capture the active tab.</p>
+    </section>
+
+    <button id="captureButton" class="primary-button" type="button">Capture Active Tab</button>
+
+    <section id="resultPanel" class="result-panel hidden" aria-label="Capture result">
+      <dl>
+        <div>
+          <dt>URL</dt>
+          <dd id="resultUrl"></dd>
+        </div>
+        <div>
+          <dt>Captured</dt>
+          <dd id="resultTime"></dd>
+        </div>
+        <div>
+          <dt>Page Title</dt>
+          <dd id="resultTitle"></dd>
+        </div>
+        <div>
+          <dt>Candidate Heading</dt>
+          <dd id="resultHeading"></dd>
+        </div>
+        <div>
+          <dt>Signals</dt>
+          <dd id="resultSignals"></dd>
+        </div>
+      </dl>
+    </section>
+  </main>
+
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

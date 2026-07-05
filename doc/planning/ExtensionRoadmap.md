@@ -1,4 +1,4 @@
-﻿# Extension Roadmap
+# Extension Roadmap
 
 **Status:** Planning
 **Created:** 2026-07-05
@@ -106,7 +106,6 @@ Goal: create the working extension foundation after storage feasibility is known
 Likely work:
 
 - create the main Manifest V3 extension structure
-- choose the source layout and tooling
 - add popup UI shell
 - add options page entry point for project folder configuration
 - add content script and message passing
@@ -210,7 +209,6 @@ These should remain text-friendly. The MVP should not parse salary into numeric 
 
 - Does Microsoft Edge support the planned File System Access API behavior from the required extension context?
 - What exact permission re-grant flow does Edge require after extension reloads or browser restarts?
-- What source layout and tooling should the extension use?
 - What exact LinkedIn URL/DOM conditions define the first supported job detail page detector?
 - How much editing belongs in the popup versus a larger extension page?
 
@@ -233,3 +231,5 @@ The following should remain outside the extension MVP unless a future DevCycle e
 Future implementation work should be planned through DevCycle documents in `doc/planning/`, using `DevCycleTemplate.md` and the workflow described in `DevelopmentProcess.md`.
 
 When a DevCycle document is created, it should be narrow enough that its tasks can be completed, reviewed, and moved to `doc/planning/completed/` without carrying the whole project inside one oversized cycle.
+
+
