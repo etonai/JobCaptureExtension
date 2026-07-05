@@ -22,7 +22,7 @@ Core outcomes:
 
 - capture the current LinkedIn job posting deterministically
 - avoid AI or LLM parsing in the extension
-- let the user review and edit extracted values before saving
+- let the user inspect captured values before saving, with editing added later only if real use shows it is needed
 - store the full captured listing in a local project folder
 - append high-priority tracking fields to a CSV spreadsheet
 - keep the capture logic separate from the UI so it can be tested and reused
@@ -36,7 +36,7 @@ The first usable version should include:
 - content script capture flow
 - user reminder to manually expand collapsed LinkedIn descriptions before capture
 - deterministic extraction for the fields defined in `README.md` and `ExtensionDesign.md`
-- simple review UI with editable fields
+- simple capture/save UI, with editable review deferred until real use proves it is needed
 - project folder configuration
 - saved listings folder inside the project folder
 - full captured listing saved as structured JSON
@@ -149,35 +149,50 @@ Likely work:
 
 Desired outcome: a reviewed capture can be saved locally as both a full listing record and a CSV tracking row.
 
-### DevCycle006: Review UI, Editing, and Capture Polish
+### DevCycle006: Manual Field Trial
 
-Goal: make the capture workflow comfortable and resilient for real use.
+Goal: use the current extension in real job-search activity for at least one day before deciding whether more product work is actually needed.
 
 Likely work:
 
-- build the editable review UI for extracted fields
+- use the extension on real LinkedIn job postings for a minimum of one day
+- capture/save multiple jobs through the normal workflow
+- inspect generated JSON, sibling description `.txt`, and `job-tracking.csv` output
+- record parser mistakes, awkward UI moments, missing fields, save failures, or confusing messages
+- record which roadmap ideas still feel valuable after real use
+- avoid adding new features during the field trial unless a blocking defect appears
+- decide whether the next cycle should be bug fixes, review/editing UI, release hardening, or no immediate extension work
+
+Desired outcome: the next planning decision is based on real usage evidence rather than roadmap inertia.
+
+### Future Candidate: Review UI, Editing, and Capture Polish
+
+Goal: improve the capture workflow only if manual use shows that correction before save is worth the added UI.
+
+Possible work:
+
+- build an editable review UI for extracted fields
 - distinguish required, optional, missing, and ambiguous fields
 - allow the user to correct extraction mistakes before saving
-- improve user-facing errors and status messages
-- ensure incomplete captures can still be saved when minimum data exists
-- refine filename generation and CSV row mapping
-- test Easy Apply and external Apply examples end to end
+- add a notes field before save if spreadsheet notes become useful
+- improve user-facing errors and status messages where field-trial notes show friction
+- refine filename generation or CSV row mapping if real captures expose issues
 
-Desired outcome: the extension is usable for everyday capture without requiring perfect parser results.
+Desired outcome: the extension becomes more comfortable for everyday capture without overbuilding features that are not yet needed.
 
-### DevCycle007: Packaging, Hardening, and Follow-Up Planning
+### Future Candidate: Packaging, Hardening, and Follow-Up Planning
 
-Goal: prepare the MVP for repeatable local use and identify the next product layer.
+Goal: prepare the MVP for repeatable local use if the field trial shows the current unpacked-extension workflow is worth keeping long-term.
 
-Likely work:
+Possible work:
 
 - document installation/loading steps
 - review extension permissions
 - verify behavior in Microsoft Edge
-- add regression checks for example fixtures
-- improve parser resilience where early testing exposes weak spots
+- add regression checks for any new field-trial bugs
+- improve parser resilience where real testing exposes weak spots
 - document known LinkedIn layout limitations
-- decide what belongs in the extension versus the later local tracking application
+- decide what belongs in the extension versus a later local tracking application
 
 Desired outcome: the MVP is stable enough for regular personal use and has a clear next-step plan.
 
