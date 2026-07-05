@@ -1,0 +1,178 @@
+
+EasyPost
+
+
+Software Engineer 
+
+United States · 1 month ago · Over 100 applicants
+
+Promoted by hirer · Actively reviewing applicants
+
+$130K/yr - $170K/yr
+Remote
+Full-time
+
+Easy Apply
+
+Save
+You’d be a top applicant and more likely to hear back
+
+Your profile and resume seem to match the required qualifications well.
+
+
+Show match details
+
+Tailor my resume
+
+Help me stand out
+
+Create cover letter
+
+
+BETA • Is this information helpful?
+
+
+People you can reach out to
+
+Ron Justin 
+
+• 3rd
+
+VP of Sales | eCommerce Founder | Recovering Engineer
+
+School alum from University of Nevada-Las Vegas
+
+Message
+About the job
+Position Summary: 
+
+
+
+The Software Engineer III will be responsible for designing, building, and maintaining scalable data data-driven products, including necessary data pipelines and tooling to support those products or initiatives. You will collaborate closely with cross-functional teams including product managers, other engineers, data scientists and analysts to deliver data products that meet the needs of our customers and stakeholders.
+
+ 
+
+Essential Duties and Responsibilities:
+
+
+
+The essential functions include, but are not limited to the following:
+
+
+
+o Design, code, test, and debug data-driven applications in accordance with established coding standards and best practices.
+
+o Develop supporting data tooling, including data pipelines, APIs and related tools to support those applications, ensuring that the tooling supports performant, scalable and secure solutions.
+
+o Integrate with various data sources and technologies to ensure the right data is available for the solutions in a timely manner.
+
+o Collaborate with product managers, designers, and other stakeholders to translate business requirements into technical specifications and architectural designs. Provide input on feasibility and technical approaches for implementing new features and improvements.
+
+o Participate in code reviews to maintain code quality, ensure consistency, and share knowledge among team members. Offer constructive feedback and suggestions to enhance codebase integrity.
+
+o Utilize version control systems to manage and track changes to source code. Collaborate effectively within a distributed version control environment.
+
+o Ensure compatibility and interoperability between different systems and platforms.
+
+o Work closely with cross-functional teams to integrate data engineering into overall business processes.
+
+o Develop and maintain documentation for data processes and workflows.
+
+o Stay updated on emerging data technologies and evaluate their relevance to the organization.
+
+o Make recommendations for adopting new tools or technologies to enhance data engineering capabilities.
+
+
+
+ 
+
+Minimum Education & Experience Qualifications:
+
+
+
+o Bachelor’s Degree in computer science, information technology, data science, analytics, or other related field.
+
+o 5+ years of related experience, a master’s degree and 3+ years of related experience, or equivalent related work experience.
+
+o Proficient in SQL and Python. Experience in Ruby, Javascript/Typescript a plus.
+
+o Experienced in utilizing Cloud technologies and Infrastructure as Code.
+
+o Experience with Looker, DBT, and cloud warehouse technologies a plus.
+
+o Experience with Parcel APIs, Parcel Financial Data and EDI feeds a plus
+
+o Effective problem-solving skills and a desire to solve business challenges with data.
+
+o Ability to communicate effectively to multiple key stakeholders.
+
+
+
+Core Competencies Required:
+
+
+
+o Knowledge and Application: Complete knowledge and full understanding of areas of specialization, principles and practices within a professional discipline. Assesses unusual circumstances and uses sophisticated analytical and problem solving techniques to identify causes. Resolves and assesses a wide range of issues in creative ways and suggests variations in approach. This job is a fully qualified, experienced professional, journey-level position.
+
+
+
+o Complexity & Problem Solving: Works on problems of diverse scope where analysis of information requires evaluation of identifiable factors. Devises solutions based on limited information and precedent and adapts existing approaches to resolve issues. Uses evaluation, judgment, and interpretation to select the right course of action. Work is done independently and is reviewed at critical points.
+
+
+
+
+
+o Collaboration & Interaction: Enhances relationships and networks with senior internal/external partners who are not familiar with the subject matter often requiring persuasion. Adapts style to different audiences and often advises others on difficult matters.
+
+
+
+Physical Demands and Work Environment: 
+
+
+
+The physical demands described here are representative of those that must be met by an employee to successfully perform the essential functions of this position. Reasonable accommodation may be made to enable individuals with disabilities to perform the functions.
+
+ 
+
+Physical Requirements:
+
+
+
+o Minimal to light physical effort is required in performing duties.
+
+o Prolonged stationary periods at a desk and working on a computer.
+
+o Extensive use of computers, keyboards, and communication-based technology to exchange information.
+
+o Occasional walking and lifting may be required and must be able to lift 15 pounds at any given time.
+
+o Travel Required: 10%
+
+
+
+Work Environment:
+
+
+
+o Core Values: Build and sell products we believe in, accountability and authenticity in all we do, customers guide the way, and persistence and humility.
+
+o Remote, home office or office location with potential hybrid schedule.
+
+o Team-based culture.
+
+o Fast-paced environment.
+
+o Required on-call hours.
+
+
+Requirements added by the job poster
+
+• Bachelor's Degree
+
+• 2+ years of Financial Services experience
+
+• 3+ years of work experience with ISQL
+
+• 3+ years of work experience with Looker (Software)
+
+• 3+ years of work experience with Python (Programming Language)
