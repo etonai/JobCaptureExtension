@@ -4,20 +4,23 @@ This folder contains the production Microsoft Edge / Chromium Manifest V3 extens
 
 ## Current DevCycle Scope
 
-DevCycle004 adds the first deterministic LinkedIn parser on top of the DevCycle003 extension shell.
+DevCycle005 adds local persistence on top of the DevCycle004 parser.
 
 Implemented in the current shell:
 
 - Manifest V3 extension shell
 - popup capture action
-- options page entry point
+- options page project folder configuration
 - active-tab programmatic capture using `chrome.scripting.executeScript`
 - conservative LinkedIn job page detection
 - structured LinkedIn job capture object
 - summary display for parsed fields
-- unsupported-page and error states
+- saved listing JSON writes into `saved-listings/`
+- sibling description-only `.txt` writes into `saved-listings/`
+- `job-tracking.csv` creation/header validation/append
+- unsupported-page, save-success, save-error, and partial-success states
 
-It does not implement the final editable review UI, project folder file access, JSON saves, or CSV appends.
+It does not implement the final editable review UI. The Save action writes the current captured parser result; DevCycle006 will add richer field editing before save.
 
 ## Source Layout
 
@@ -31,14 +34,21 @@ extension/
   options/
     options.html
     options.css
+    options.js
   content/
     captureActivePage.js
+  shared/
+    csv.js
+    filename.js
+    projectFolderStore.js
+    saveListing.js
   tests/
     captureActivePage.smoke.test.mjs
+    persistence.test.mjs
   PARSER_NOTES.md
 ```
 
-`popup/popup.js` owns popup state and active-tab injection. `content/captureActivePage.js` exports the standalone function injected into the active tab. The injected function currently contains the parser helpers directly because Chrome serializes the provided function when executing it in the active tab.
+`popup/popup.js` owns popup state, active-tab injection, and minimal Save orchestration. Shared modules own CSV serialization, filename generation, project folder handle storage, and JSON/TXT/CSV writes.
 
 ## Tooling Decision
 
@@ -56,14 +66,20 @@ The extension currently uses plain JavaScript with no build step. This keeps unp
    ```
 
 5. Pin or open the extension action.
-6. Open a page and click **Capture Active Tab**.
+6. Open Options and choose a project folder.
+7. Open a LinkedIn job page, capture, then save.
 
-## Smoke Test Checklist
+## Project Folder Layout
 
-- On a non-LinkedIn page, capture should show an unsupported-page message.
-- On a LinkedIn page without job detail content, capture should show an unsupported-page message.
-- On a LinkedIn job detail page, capture should return a structured record with company, title, location, posting age, applicant count, apply type, and description fields when visible.
-- The Options button should open the extension options page.
+```text
+Job Search Project/
+  job-tracking.csv
+  saved-listings/
+    2026-07-05_starbucks_software-engineer-sr_123456789.json
+    2026-07-05_starbucks_software-engineer-sr_123456789.txt
+```
+
+The CSV uses the locked first-version schema from `doc/planning/ExtensionDesign.md`. Existing CSV files with mismatched headers block CSV append, but the JSON listing and description text file remain saved when possible.
 
 ## Local Checks
 
@@ -72,7 +88,13 @@ Run from the repository root:
 ```powershell
 node --check extension/content/captureActivePage.js
 node --check extension/popup/popup.js
+node --check extension/options/options.js
+node --check extension/shared/csv.js
+node --check extension/shared/filename.js
+node --check extension/shared/projectFolderStore.js
+node --check extension/shared/saveListing.js
 node extension/tests/captureActivePage.smoke.test.mjs
+node extension/tests/persistence.test.mjs
 ```
 
 ## Notes

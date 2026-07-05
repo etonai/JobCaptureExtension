@@ -11,24 +11,48 @@
     <header>
       <p class="eyebrow">LinkedIn Job Capture</p>
       <h1>Options</h1>
-      <p>The project folder workflow was proven in DevCycle002. Production folder setup, JSON saves, and CSV appends are planned for a later DevCycle.</p>
+      <p>Configure the local project folder used for saved listing JSON files and <code>job-tracking.csv</code>.</p>
     </header>
 
-    <section class="panel">
-      <h2>Project Folder</h2>
-      <p class="status">Not configured in this shell yet.</p>
-      <p>The final extension will use a local project folder containing <code>job-tracking.csv</code> and a <code>saved-listings/</code> folder.</p>
+    <section class="panel" aria-labelledby="projectFolderHeading">
+      <h2 id="projectFolderHeading">Project Folder</h2>
+      <div class="status-grid">
+        <div>
+          <span class="label">API</span>
+          <strong id="apiStatus">Checking...</strong>
+        </div>
+        <div>
+          <span class="label">Folder</span>
+          <strong id="folderStatus">Checking...</strong>
+        </div>
+        <div>
+          <span class="label">Permission</span>
+          <strong id="permissionStatus">Checking...</strong>
+        </div>
+      </div>
+      <p id="folderDetails" class="status">Loading project folder status.</p>
+      <div class="button-row">
+        <button id="chooseFolderButton" class="primary" type="button">Choose Project Folder</button>
+        <button id="validateButton" type="button">Validate Structure</button>
+        <button id="forgetFolderButton" type="button">Forget Folder</button>
+      </div>
     </section>
 
-    <section class="panel">
-      <h2>Current Scope</h2>
-      <ul>
-        <li>Popup capture action</li>
-        <li>Active-tab page detection</li>
-        <li>Unsupported-page messaging</li>
-        <li>Options entry point for future project folder configuration</li>
-      </ul>
+    <section class="panel" aria-labelledby="layoutHeading">
+      <h2 id="layoutHeading">Expected Layout</h2>
+      <pre>Job Search Project/
+  job-tracking.csv
+  saved-listings/
+    2026-07-05_starbucks_software-engineer-sr_123456789.json</pre>
+    <p>Changing the folder affects future saves only. Existing files are not moved.</p>
+    </section>
+
+    <section class="panel" aria-labelledby="logHeading">
+      <h2 id="logHeading">Activity</h2>
+      <pre id="log" aria-live="polite"></pre>
     </section>
   </main>
+
+  <script type="module" src="options.js"></script>
 </body>
 </html>

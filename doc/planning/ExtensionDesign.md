@@ -32,6 +32,7 @@ The first usable version includes:
 - editable extracted fields before save
 - configured local project folder
 - full captured listing saved as JSON
+- description text saved as a sibling `.txt` file
 - compact tracking row appended to `job-tracking.csv`
 - graceful handling of missing or ambiguous fields
 
@@ -62,7 +63,7 @@ The MVP does not include:
 8. The extension displays extracted fields for review.
 9. The user edits incorrect or missing values as needed.
 10. The user clicks one primary Save action.
-11. Save writes the full JSON listing and appends one row to `job-tracking.csv`.
+11. Save writes the full JSON listing, writes a sibling description-only `.txt` file, and appends one row to `job-tracking.csv`.
 12. The UI confirms that the CSV row was appended.
 
 Capture and review should be allowed before project folder setup so the user can see value early. Save requires a configured and writable project folder.
@@ -111,6 +112,7 @@ Job Search Project/
   job-tracking.csv
   saved-listings/
     2026-07-05_starbucks_software-engineer-sr_123456789.json
+    2026-07-05_starbucks_software-engineer-sr_123456789.txt
 ```
 
 On setup, the extension should validate the folder. If `job-tracking.csv` or `saved-listings/` is missing, the extension may create them after user confirmation.
@@ -163,7 +165,7 @@ Canonical first-version shape:
 }
 ```
 
-The JSON should preserve line breaks enough to keep descriptions readable. It should not save the original page HTML in the MVP.
+The JSON should preserve line breaks enough to keep descriptions readable. A sibling `.txt` file should also be written beside the JSON with the same basename and only the `description` text as its contents. It should not save the original page HTML in the MVP.
 
 ## CSV Schema
 
@@ -236,7 +238,7 @@ Filename rules:
 - truncate long company/title segments to keep the filename manageable
 - preserve uniqueness without overwriting existing files
 
-`savedListingPath` in CSV should be project-relative with forward slashes, for example:
+Each JSON listing should have a sibling description text file with the same basename and a `.txt` extension. `savedListingPath` in CSV should remain the JSON path and should be project-relative with forward slashes, for example:
 
 ```text
 saved-listings/2026-07-05_starbucks_software-engineer-sr_123456789.json
@@ -313,7 +315,7 @@ If multiple plausible candidates remain, choose the highest-confidence value for
 LinkedIn may display these together, such as:
 
 ```text
-Seattle, WA Â· Reposted 3 hours ago Â· Over 100 people clicked apply
+Seattle, WA ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· Reposted 3 hours ago ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· Over 100 people clicked apply
 ```
 
 For MVP, preserve visible text rather than deriving normalized values. Use the visible separator order as a heuristic, but do not convert applicant count to a number or posted text to a date.
@@ -415,9 +417,10 @@ Warn but allow Save when:
 
 Partial success behavior:
 
-- If JSON saves but CSV append fails, report partial success and keep the JSON.
-- If JSON fails, do not write the CSV row because `savedListingPath` would be invalid.
-- If the CSV header mismatches, save JSON if possible and report that CSV append was blocked.
+- If JSON and description text save but CSV append fails, report partial success and keep the saved files.
+- If JSON saves but description text fails, report partial success and do not append CSV.
+- If JSON fails, do not write the description text file or CSV row because `savedListingPath` would be invalid.
+- If the CSV header mismatches, save JSON and description text if possible and report that CSV append was blocked.
 
 ## Testing Strategy
 
@@ -429,7 +432,7 @@ Minimum tests before MVP is considered stable:
 - CSV serialization tests for quoting, commas, quotes, newlines, BOM, and CRLF
 - CSV header validation tests
 - filename slug/sanitization tests
-- repeated-capture filename collision tests
+- repeated-capture filename collision tests for JSON/TXT sibling pairs
 - manual Edge extension load and capture checklist
 
 Large saved HTML files can be used initially as reference fixtures. Smaller focused fixtures may be created later once parser boundaries are clearer.

@@ -1,7 +1,10 @@
 import { captureActivePage } from '../content/captureActivePage.js';
+import { getProjectFolderStatus } from '../shared/projectFolderStore.js';
+import { saveCaptureRecord } from '../shared/saveListing.js';
 
 const elements = {
   captureButton: document.querySelector('#captureButton'),
+  saveButton: document.querySelector('#saveButton'),
   optionsButton: document.querySelector('#optionsButton'),
   statusPanel: document.querySelector('#statusPanel'),
   statusTitle: document.querySelector('#statusTitle'),
@@ -21,6 +24,8 @@ const elements = {
   resultUrl: document.querySelector('#resultUrl')
 };
 
+let lastCaptureRecord = null;
+
 function setStatus(kind, title, message) {
   elements.statusPanel.className = `status-panel ${kind}`;
   elements.statusTitle.textContent = title;
@@ -29,6 +34,12 @@ function setStatus(kind, title, message) {
 
 function displayValue(value) {
   return value || 'Not captured';
+}
+
+function updateSaveButton() {
+  const canSave = Boolean(lastCaptureRecord);
+  elements.saveButton.classList.toggle('hidden', !canSave);
+  elements.saveButton.disabled = !canSave;
 }
 
 function setResult(result) {
@@ -54,6 +65,8 @@ function setResult(result) {
 }
 
 function clearResult() {
+  lastCaptureRecord = null;
+  updateSaveButton();
   elements.resultPanel.classList.add('hidden');
   for (const key of [
     'resultCompany',
@@ -100,7 +113,14 @@ async function runCapture() {
 
     setResult(result);
     if (result.ok) {
-      setStatus('captured', 'Captured', 'Structured job fields captured for review. Saving is planned for a later DevCycle.');
+      lastCaptureRecord = result.record;
+      updateSaveButton();
+      const folderStatus = await getProjectFolderStatus();
+      if (folderStatus.configured) {
+        setStatus('captured', 'Captured', 'Structured job fields captured. Review the summary, then save to your project folder.');
+      } else {
+        setStatus('captured', 'Captured', 'Structured job fields captured. Configure a project folder in Options before saving.');
+      }
     } else {
       setStatus('unsupported', 'Unsupported Page', result.message || 'This page is not supported yet.');
     }
@@ -111,9 +131,41 @@ async function runCapture() {
   }
 }
 
+async function runSave() {
+  if (!lastCaptureRecord) {
+    setStatus('error', 'Nothing To Save', 'Capture a supported LinkedIn job before saving.');
+    return;
+  }
+
+  elements.saveButton.disabled = true;
+  elements.captureButton.disabled = true;
+  setStatus('capturing', 'Saving', 'Writing JSON listing and CSV tracking row.');
+
+  try {
+    const result = await saveCaptureRecord(lastCaptureRecord);
+    lastCaptureRecord = result.record;
+    if (result.partial) {
+      setResult({ ok: true, record: lastCaptureRecord, warnings: [{ message: result.csvError }] });
+      setStatus('warning', 'Partially Saved', `JSON saved to ${result.savedListingPath}. CSV append failed: ${result.csvError}`);
+    } else {
+      setResult({ ok: true, record: lastCaptureRecord, warnings: [] });
+      setStatus('captured', 'Saved', `JSON saved and CSV row appended: ${result.savedListingPath}`);
+    }
+  } catch (error) {
+    const message = error.message || String(error);
+    const suffix = /project folder/i.test(message) ? ' Open Options to choose or reconnect the project folder.' : '';
+    setStatus('error', 'Save Failed', `${message}${suffix}`);
+  } finally {
+    elements.captureButton.disabled = false;
+    elements.saveButton.disabled = false;
+  }
+}
+
 function openOptions() {
   chrome.runtime.openOptionsPage();
 }
 
 elements.captureButton.addEventListener('click', runCapture);
+elements.saveButton.addEventListener('click', runSave);
 elements.optionsButton.addEventListener('click', openOptions);
+updateSaveButton();
