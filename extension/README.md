@@ -1,20 +1,23 @@
 # Production Extension Shell
 
-This folder contains the production Microsoft Edge / Chromium Manifest V3 extension shell for the LinkedIn Job Capture Extension.
+This folder contains the production Microsoft Edge / Chromium Manifest V3 extension for the LinkedIn Job Capture Extension.
 
 ## Current DevCycle Scope
 
-DevCycle003 implements:
+DevCycle004 adds the first deterministic LinkedIn parser on top of the DevCycle003 extension shell.
+
+Implemented in the current shell:
 
 - Manifest V3 extension shell
 - popup capture action
 - options page entry point
 - active-tab programmatic capture using `chrome.scripting.executeScript`
 - conservative LinkedIn job page detection
-- minimal capture result display
+- structured LinkedIn job capture object
+- summary display for parsed fields
 - unsupported-page and error states
 
-It does not implement the final parser, review UI, project folder configuration, JSON saves, or CSV appends.
+It does not implement the final editable review UI, project folder file access, JSON saves, or CSV appends.
 
 ## Source Layout
 
@@ -30,10 +33,12 @@ extension/
     options.css
   content/
     captureActivePage.js
-  shared/
+  tests/
+    captureActivePage.smoke.test.mjs
+  PARSER_NOTES.md
 ```
 
-`popup/popup.js` owns popup state and active-tab injection. `content/captureActivePage.js` exports the standalone function injected into the active tab. Later DevCycles can expand this boundary into a fuller parser module without embedding parser logic directly in the UI.
+`popup/popup.js` owns popup state and active-tab injection. `content/captureActivePage.js` exports the standalone function injected into the active tab. The injected function currently contains the parser helpers directly because Chrome serializes the provided function when executing it in the active tab.
 
 ## Tooling Decision
 
@@ -57,8 +62,18 @@ The extension currently uses plain JavaScript with no build step. This keeps unp
 
 - On a non-LinkedIn page, capture should show an unsupported-page message.
 - On a LinkedIn page without job detail content, capture should show an unsupported-page message.
-- On a LinkedIn job detail page, capture should return URL, timestamp, page title, candidate heading, and detection signals.
+- On a LinkedIn job detail page, capture should return a structured record with company, title, location, posting age, applicant count, apply type, and description fields when visible.
 - The Options button should open the extension options page.
+
+## Local Checks
+
+Run from the repository root:
+
+```powershell
+node --check extension/content/captureActivePage.js
+node --check extension/popup/popup.js
+node extension/tests/captureActivePage.smoke.test.mjs
+```
 
 ## Notes
 

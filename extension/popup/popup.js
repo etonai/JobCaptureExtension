@@ -7,11 +7,18 @@ const elements = {
   statusTitle: document.querySelector('#statusTitle'),
   statusMessage: document.querySelector('#statusMessage'),
   resultPanel: document.querySelector('#resultPanel'),
-  resultUrl: document.querySelector('#resultUrl'),
-  resultTime: document.querySelector('#resultTime'),
-  resultTitle: document.querySelector('#resultTitle'),
-  resultHeading: document.querySelector('#resultHeading'),
-  resultSignals: document.querySelector('#resultSignals')
+  resultCompany: document.querySelector('#resultCompany'),
+  resultJobTitle: document.querySelector('#resultJobTitle'),
+  resultLocation: document.querySelector('#resultLocation'),
+  resultWorkplace: document.querySelector('#resultWorkplace'),
+  resultEmployment: document.querySelector('#resultEmployment'),
+  resultSalary: document.querySelector('#resultSalary'),
+  resultPosted: document.querySelector('#resultPosted'),
+  resultApplicants: document.querySelector('#resultApplicants'),
+  resultApplyType: document.querySelector('#resultApplyType'),
+  resultDescription: document.querySelector('#resultDescription'),
+  resultWarnings: document.querySelector('#resultWarnings'),
+  resultUrl: document.querySelector('#resultUrl')
 };
 
 function setStatus(kind, title, message) {
@@ -20,24 +27,50 @@ function setStatus(kind, title, message) {
   elements.statusMessage.textContent = message;
 }
 
+function displayValue(value) {
+  return value || 'Not captured';
+}
+
 function setResult(result) {
+  const record = result.record || {};
+  const warnings = result.warnings || [];
   elements.resultPanel.classList.remove('hidden');
-  elements.resultUrl.textContent = result.url || '';
-  elements.resultTime.textContent = result.captureTimeUtc || '';
-  elements.resultTitle.textContent = result.pageTitle || '';
-  elements.resultHeading.textContent = result.candidateHeading || '';
-  elements.resultSignals.textContent = Object.entries(result.signals || {})
-    .map(([key, value]) => `${key}: ${value}`)
-    .join(', ');
+  elements.resultCompany.textContent = displayValue(record.company);
+  elements.resultJobTitle.textContent = displayValue(record.title);
+  elements.resultLocation.textContent = displayValue(record.location);
+  elements.resultWorkplace.textContent = displayValue(record.workplaceType);
+  elements.resultEmployment.textContent = displayValue(record.employmentType);
+  elements.resultSalary.textContent = displayValue(record.salaryText);
+  elements.resultPosted.textContent = displayValue(record.postedText);
+  elements.resultApplicants.textContent = displayValue(record.applicantCountText);
+  elements.resultApplyType.textContent = displayValue(record.applyType);
+  elements.resultDescription.textContent = record.description
+    ? `${record.description.length.toLocaleString()} characters captured`
+    : 'Not captured';
+  elements.resultWarnings.textContent = warnings.length
+    ? warnings.map((warning) => warning.message).join(' ')
+    : 'None';
+  elements.resultUrl.textContent = result.url || record.url || '';
 }
 
 function clearResult() {
   elements.resultPanel.classList.add('hidden');
-  elements.resultUrl.textContent = '';
-  elements.resultTime.textContent = '';
-  elements.resultTitle.textContent = '';
-  elements.resultHeading.textContent = '';
-  elements.resultSignals.textContent = '';
+  for (const key of [
+    'resultCompany',
+    'resultJobTitle',
+    'resultLocation',
+    'resultWorkplace',
+    'resultEmployment',
+    'resultSalary',
+    'resultPosted',
+    'resultApplicants',
+    'resultApplyType',
+    'resultDescription',
+    'resultWarnings',
+    'resultUrl'
+  ]) {
+    elements[key].textContent = '';
+  }
 }
 
 async function getActiveTab() {
@@ -67,7 +100,7 @@ async function runCapture() {
 
     setResult(result);
     if (result.ok) {
-      setStatus('captured', 'Captured', 'Basic LinkedIn job page signal captured. Full parsing comes in a later DevCycle.');
+      setStatus('captured', 'Captured', 'Structured job fields captured for review. Saving is planned for a later DevCycle.');
     } else {
       setStatus('unsupported', 'Unsupported Page', result.message || 'This page is not supported yet.');
     }

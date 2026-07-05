@@ -1,6 +1,6 @@
 # DevCycle 003: Extension Shell and Basic Capture Flow
 
-**Status:** VERIFIED
+**Status:** Verified
 **Start Date:** 2026-07-05
 **Target Completion:** TBD
 **Focus:** Create the main Manifest V3 extension foundation with popup, options page entry point, active-tab capture messaging, and basic LinkedIn job page detection.

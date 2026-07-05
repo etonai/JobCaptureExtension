@@ -1,86 +1,348 @@
 export function captureActivePage() {
-  function normalizeText(value) {
-    return value.replace(/\s+/g, ' ').trim();
+  function normalizeLine(value) {
+    return String(value ?? '').replace(/\s+/g, ' ').trim();
   }
 
-  function isChromeHeading(text) {
-    const lower = text.toLowerCase();
-    return lower === 'notifications'
-      || lower.endsWith('notifications')
-      || lower === 'about the job'
-      || lower === 'people you can reach out to';
+  function normalizeBlock(value) {
+    return String(value ?? '')
+      .replace(/\r\n/g, '\n')
+      .replace(/\r/g, '\n')
+      .split('\n')
+      .map((line) => line.replace(/[ \t]+/g, ' ').trim())
+      .join('\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
   }
 
-  function findCandidateHeading() {
-    const headings = Array.from(document.querySelectorAll('h1, h2'))
-      .map((element) => normalizeText(element.innerText || element.textContent || ''))
-      .filter(Boolean)
-      .filter((text) => !isChromeHeading(text));
+  function visibleLines(text) {
+    return String(text ?? '')
+      .replace(/\r\n/g, '\n')
+      .replace(/\r/g, '\n')
+      .split('\n')
+      .map(normalizeLine)
+      .filter(Boolean);
+  }
 
-    const titleHeading = headings.find((text) => text.length > 3 && text.length < 160);
-    if (titleHeading) {
-      return titleHeading;
+  function isLinkedInHost(hostname) {
+    return hostname === 'www.linkedin.com' || hostname.endsWith('.linkedin.com');
+  }
+
+  function getLocalParts(date) {
+    const yyyy = String(date.getFullYear()).padStart(4, '0');
+    const mm = String(date.getMonth() + 1).padStart(2, '0');
+    const dd = String(date.getDate()).padStart(2, '0');
+    const hh = String(date.getHours()).padStart(2, '0');
+    const mi = String(date.getMinutes()).padStart(2, '0');
+    const ss = String(date.getSeconds()).padStart(2, '0');
+    return {
+      date: `${yyyy}-${mm}-${dd}`,
+      time: `${hh}:${mi}:${ss}`
+    };
+  }
+
+  function createEmptyRecord(now, url) {
+    const local = getLocalParts(now);
+    return {
+      schemaVersion: 1,
+      captureTimeUtc: now.toISOString(),
+      captureDateLocal: local.date,
+      captureTimeLocal: local.time,
+      sourceWebsite: 'LinkedIn',
+      url,
+      linkedinJobId: extractLinkedInJobId(url),
+      company: '',
+      title: '',
+      location: '',
+      workplaceType: '',
+      employmentType: '',
+      salaryText: '',
+      postedText: '',
+      applicantCountText: '',
+      promotionText: '',
+      hiringStatusText: '',
+      applyType: 'Unknown',
+      description: '',
+      posterRequirements: '',
+      benefits: '',
+      additionalSections: [],
+      savedListingPath: '',
+      notes: ''
+    };
+  }
+
+  function extractLinkedInJobId(url) {
+    const match = String(url ?? '').match(/\/jobs\/view\/(\d+)/i)
+      || String(url ?? '').match(/[?&]currentJobId=(\d+)/i)
+      || String(url ?? '').match(/[?&]jobId=(\d+)/i);
+    return match?.[1] || '';
+  }
+
+  function isUiNoise(line) {
+    const lower = line.toLowerCase();
+    return lower.startsWith('company logo for')
+      || lower === 'save'
+      || lower === 'show match details'
+      || lower === 'tailor my resume'
+      || lower === 'create cover letter'
+      || lower === 'help me stand out'
+      || lower === 'people you can reach out to'
+      || lower === 'show all'
+      || lower === 'message'
+      || lower === 'skip to search'
+      || lower === 'skip to main content'
+      || lower === 'skip navigation menu'
+      || lower === 'home'
+      || lower === 'my network'
+      || lower === 'jobs'
+      || lower === 'messaging'
+      || lower === 'notifications'
+      || lower === 'me'
+      || lower === 'for business'
+      || /^\d+ notifications?$/.test(lower)
+      || lower.startsWith('beta')
+      || lower.includes('your profile and resume')
+      || lower.includes('\u2019d be a top applicant')
+      || lower.includes("you'd be a top applicant")
+      || lower.includes('determine your fit');
+  }
+
+  function splitMetadataParts(line) {
+    return line.split(/\s*(?:\u00b7|\u00c2\u00b7|[|])\s*/).map(normalizeLine).filter(Boolean);
+  }
+
+  function isLikelyMetadataLine(line) {
+    return /(?:\u00b7|\u00c2\u00b7|[|])/.test(line) && (
+      /ago|yesterday|applicant|clicked apply|reposted|posted/i.test(line)
+    );
+  }
+
+  function isSalaryLine(line) {
+    return /\$\s?\d[\d,.]*\s?[KkMm]?\s*\/?\s?(yr|year|hr|hour)?\s*-\s*\$?\s?\d[\d,.]*\s?[KkMm]?/i.test(line)
+      || /\$\s?\d[\d,.]*\s?[KkMm]?\s*\/?\s?(yr|year|hr|hour)/i.test(line);
+  }
+
+  function isWorkplaceType(line) {
+    return /^(Remote|Hybrid|On-site|Onsite|On site)$/i.test(line);
+  }
+
+  function normalizeWorkplaceType(line) {
+    if (/^remote$/i.test(line)) return 'Remote';
+    if (/^hybrid$/i.test(line)) return 'Hybrid';
+    if (/^(on-site|onsite|on site)$/i.test(line)) return 'On-site';
+    return line;
+  }
+
+  function isEmploymentType(line) {
+    return /^(Full-time|Part-time|Contract|Temporary|Internship|Volunteer|Other)$/i.test(line);
+  }
+
+  function normalizeEmploymentType(line) {
+    const known = ['Full-time', 'Part-time', 'Contract', 'Temporary', 'Internship', 'Volunteer', 'Other'];
+    return known.find((value) => value.toLowerCase() === line.toLowerCase()) || line;
+  }
+
+  function classifyStatusLine(line, record) {
+    const parts = splitMetadataParts(line);
+    for (const part of parts) {
+      if (/promoted/i.test(part) && !record.promotionText) {
+        record.promotionText = part;
+      } else if (/(actively reviewing|responses managed|reviewing applicants|managed off linkedin|hiring|recruit)/i.test(part) && !record.hiringStatusText) {
+        record.hiringStatusText = part;
+      }
+    }
+  }
+
+  function parseMetadataLine(line, record) {
+    const parts = splitMetadataParts(line);
+    if (parts.length >= 1 && !record.location) {
+      record.location = parts[0];
+    }
+    if (parts.length >= 2 && !record.postedText) {
+      record.postedText = parts[1];
+    }
+    if (parts.length >= 3 && !record.applicantCountText) {
+      record.applicantCountText = parts.slice(2).join(' \u00b7 ');
+    }
+  }
+
+  function findTitleFromDocumentTitle(titleText) {
+    const firstPart = normalizeLine(String(titleText ?? '').split('|')[0] || '');
+    return firstPart;
+  }
+
+  function parseHeaderFields(lines, record, pageTitle) {
+    const usable = lines.filter((line) => !isUiNoise(line));
+    const aboutIndex = usable.findIndex((line) => /^About the job$/i.test(line));
+    const headerLines = aboutIndex >= 0 ? usable.slice(0, aboutIndex) : usable.slice(0, 30);
+    const firstMetaIndex = headerLines.findIndex(isLikelyMetadataLine);
+
+    if (firstMetaIndex >= 0) {
+      parseMetadataLine(headerLines[firstMetaIndex], record);
+      const beforeMeta = headerLines
+        .slice(Math.max(0, firstMetaIndex - 12), firstMetaIndex)
+        .filter((line) => !isSalaryLine(line))
+        .filter((line) => !isWorkplaceType(line))
+        .filter((line) => !isEmploymentType(line))
+        .filter((line) => !/^(Apply|Easy Apply)$/i.test(line));
+      const identityLines = beforeMeta.slice(-2);
+      if (!record.company && identityLines.length > 0) {
+        record.company = identityLines[0];
+      }
+      if (!record.title && identityLines.length > 1) {
+        record.title = identityLines[1];
+      }
     }
 
-    const titleText = normalizeText(document.title || '');
-    if (!titleText) {
-      return '';
+    if (!record.title) {
+      record.title = findTitleFromDocumentTitle(pageTitle);
     }
 
-    const pipeIndex = titleText.indexOf('|');
-    return normalizeText(pipeIndex >= 0 ? titleText.slice(0, pipeIndex) : titleText);
+    const applyScanLines = firstMetaIndex >= 0 ? headerLines.slice(firstMetaIndex + 1) : headerLines;
+
+    for (let i = 0; i < headerLines.length; i += 1) {
+      const line = headerLines[i];
+      if (!record.salaryText && isSalaryLine(line)) {
+        record.salaryText = line;
+      }
+      if (!record.workplaceType && isWorkplaceType(line)) {
+        record.workplaceType = normalizeWorkplaceType(line);
+      }
+      if (!record.employmentType && isEmploymentType(line)) {
+        record.employmentType = normalizeEmploymentType(line);
+      }
+
+      if (/promoted|actively reviewing|responses managed|managed off linkedin/i.test(line)) {
+        classifyStatusLine(line, record);
+      }
+    }
+
+    for (const line of applyScanLines) {
+      if (line === 'Easy Apply') {
+        record.applyType = 'Easy Apply';
+        break;
+      }
+      if (line === 'Apply') {
+        record.applyType = 'External Apply';
+        break;
+      }
+    }
   }
 
-  const capturedAt = new Date().toISOString();
+  function findSectionIndex(lines, matcher, startIndex = 0) {
+    for (let i = startIndex; i < lines.length; i += 1) {
+      if (matcher(lines[i])) {
+        return i;
+      }
+    }
+    return -1;
+  }
+
+  function nextSectionIndex(lines, startIndex) {
+    const matchers = [
+      (line) => /^Requirements added by the (job )?poster$/i.test(line),
+      (line) => /^Benefits found in job po/i.test(line),
+      (line) => /^People you can reach out to$/i.test(line)
+    ];
+    let next = -1;
+    for (const matcher of matchers) {
+      const index = findSectionIndex(lines, matcher, startIndex + 1);
+      if (index >= 0 && (next < 0 || index < next)) {
+        next = index;
+      }
+    }
+    return next < 0 ? lines.length : next;
+  }
+
+  function linesToBlock(lines) {
+    return normalizeBlock(lines.join('\n'));
+  }
+
+  function parseDescriptionSections(lines, record) {
+    const aboutIndex = findSectionIndex(lines, (line) => /^About the job$/i.test(line));
+    if (aboutIndex < 0) {
+      return;
+    }
+
+    const requirementsIndex = findSectionIndex(lines, (line) => /^Requirements added by the (job )?poster$/i.test(line), aboutIndex + 1);
+    const benefitsIndex = findSectionIndex(lines, (line) => /^Benefits found in job po/i.test(line), aboutIndex + 1);
+    const descriptionEnd = [requirementsIndex, benefitsIndex].filter((index) => index >= 0).sort((a, b) => a - b)[0] ?? lines.length;
+    record.description = linesToBlock(lines.slice(aboutIndex + 1, descriptionEnd));
+
+    if (requirementsIndex >= 0) {
+      const end = nextSectionIndex(lines, requirementsIndex);
+      record.posterRequirements = linesToBlock(lines.slice(requirementsIndex + 1, end));
+    }
+
+    if (benefitsIndex >= 0) {
+      const end = nextSectionIndex(lines, benefitsIndex);
+      record.benefits = linesToBlock(lines.slice(benefitsIndex + 1, end));
+    }
+  }
+
+  function missingFieldWarnings(record) {
+    const requiredForQuality = ['company', 'title', 'location', 'postedText', 'applyType', 'description'];
+    return requiredForQuality
+      .filter((field) => !record[field] || record[field] === 'Unknown')
+      .map((field) => ({ field, message: `${field} was not extracted.` }));
+  }
+
+  function parseLinkedInJobPage({ url, pageTitle, bodyText, now }) {
+    const record = createEmptyRecord(now, url);
+    const lines = visibleLines(bodyText);
+    parseHeaderFields(lines, record, pageTitle);
+    parseDescriptionSections(lines, record);
+
+    const parsedUrl = new URL(url);
+    const isLinkedIn = isLinkedInHost(parsedUrl.hostname);
+    const urlLooksLikeJob = /\/jobs\/(view|collections|search|details)\b/.test(parsedUrl.pathname) || parsedUrl.pathname.includes('/jobs/');
+    const hasAboutJob = lines.some((line) => /^About the job$/i.test(line));
+    const hasJobHeading = Boolean(record.title);
+    const hasJobMetadata = Boolean(record.company && record.title && (record.postedText || record.applyType !== 'Unknown'));
+    const supported = Boolean(isLinkedIn && (urlLooksLikeJob || hasAboutJob || hasJobMetadata));
+
+    return {
+      supported,
+      record,
+      warnings: missingFieldWarnings(record),
+      signals: {
+        isLinkedIn,
+        urlLooksLikeJob,
+        hasAboutJob,
+        hasJobHeading,
+        hasJobMetadata
+      }
+    };
+  }
+
+  const now = new Date();
   const url = window.location.href;
-  const hostname = window.location.hostname;
-  const pathname = window.location.pathname;
-  const title = document.title || '';
+  const pageTitle = document.title || '';
   const bodyText = document.body?.innerText || '';
+  const parsed = parseLinkedInJobPage({ url, pageTitle, bodyText, now });
 
-  const isLinkedIn = hostname === 'www.linkedin.com' || hostname.endsWith('.linkedin.com');
-  const urlLooksLikeJob = /\/jobs\/(view|collections|search|details)\b/.test(pathname) || pathname.includes('/jobs/');
-  const hasAboutJob = /(^|\n)\s*About the job\s*(\n|$)/i.test(bodyText);
-  const heading = findCandidateHeading();
-  const hasJobHeading = Boolean(heading);
-  const supported = Boolean(isLinkedIn && (urlLooksLikeJob || hasAboutJob || hasJobHeading));
-
-  const signals = {
-    isLinkedIn,
-    urlLooksLikeJob,
-    hasAboutJob,
-    hasJobHeading
-  };
-
-  if (!supported) {
+  if (!parsed.supported) {
     return {
       ok: false,
-      reason: isLinkedIn ? 'linkedin_page_not_job_detail' : 'not_linkedin',
-      message: isLinkedIn
+      reason: parsed.signals.isLinkedIn ? 'linkedin_page_not_job_detail' : 'not_linkedin',
+      message: parsed.signals.isLinkedIn
         ? 'This LinkedIn page does not look like a job detail page yet.'
         : 'This page is not on LinkedIn.',
-      captureTimeUtc: capturedAt,
+      captureTimeUtc: parsed.record.captureTimeUtc,
       url,
-      pageTitle: title,
-      candidateHeading: heading,
-      signals
+      pageTitle,
+      record: parsed.record,
+      warnings: parsed.warnings,
+      signals: parsed.signals
     };
   }
 
   return {
     ok: true,
-    captureTimeUtc: capturedAt,
+    captureTimeUtc: parsed.record.captureTimeUtc,
     url,
-    pageTitle: title,
-    candidateHeading: heading,
-    signals,
-    minimalRecord: {
-      schemaVersion: 1,
-      captureTimeUtc: capturedAt,
-      sourceWebsite: 'LinkedIn',
-      url,
-      title: heading,
-      description: ''
-    }
+    pageTitle,
+    record: parsed.record,
+    warnings: parsed.warnings,
+    signals: parsed.signals
   };
 }
