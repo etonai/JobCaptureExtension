@@ -27,6 +27,8 @@ It does not implement the final editable review UI. The Save action writes the c
 ```text
 extension/
   manifest.json
+  background/
+    background.js
   popup/
     popup.html
     popup.css
@@ -48,7 +50,7 @@ extension/
   PARSER_NOTES.md
 ```
 
-`popup/popup.js` owns popup state, active-tab injection, and minimal Save orchestration. Shared modules own CSV serialization, filename generation, project folder handle storage, and JSON/TXT/CSV writes.
+`background/background.js` owns shortcut command handling. `popup/popup.js` owns popup state, active-tab injection, auto-capture intent consumption, and minimal Save orchestration. Shared modules own CSV serialization, filename generation, project folder handle storage, and JSON/TXT/CSV writes.
 
 ## Tooling Decision
 
@@ -68,6 +70,17 @@ The extension currently uses plain JavaScript with no build step. This keeps unp
 5. Pin or open the extension action.
 6. Open Options and choose a project folder.
 7. Open a LinkedIn job page, capture, then save.
+## Keyboard Shortcut
+
+Default shortcut:
+
+- `Alt+Shift+L`: open the LinkedIn Job Capture popup and immediately capture the active tab.
+
+The shortcut can be reviewed or changed in Edge at:
+
+```text
+edge://extensions/shortcuts
+```
 
 ## Project Folder Layout
 
@@ -87,6 +100,7 @@ Run from the repository root:
 
 ```powershell
 node --check extension/content/captureActivePage.js
+node --check extension/background/background.js
 node --check extension/popup/popup.js
 node --check extension/options/options.js
 node --check extension/shared/csv.js

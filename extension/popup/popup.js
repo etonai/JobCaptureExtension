@@ -2,6 +2,9 @@ import { captureActivePage } from '../content/captureActivePage.js';
 import { getProjectFolderStatus } from '../shared/projectFolderStore.js';
 import { saveCaptureRecord } from '../shared/saveListing.js';
 
+const AUTO_CAPTURE_INTENT_KEY = 'popupIntent';
+const AUTO_CAPTURE_INTENT_TTL_MS = 10_000;
+
 const elements = {
   captureButton: document.querySelector('#captureButton'),
   saveButton: document.querySelector('#saveButton'),
@@ -165,7 +168,30 @@ function openOptions() {
   chrome.runtime.openOptionsPage();
 }
 
+async function consumeAutoCaptureIntent() {
+  const values = await chrome.storage.session.get(AUTO_CAPTURE_INTENT_KEY);
+  const intent = values[AUTO_CAPTURE_INTENT_KEY];
+  await chrome.storage.session.remove(AUTO_CAPTURE_INTENT_KEY);
+
+  if (!intent) {
+    return;
+  }
+
+  if (intent.error) {
+    setStatus('error', 'Shortcut Failed', intent.error);
+    return;
+  }
+
+  const isFresh = Date.now() - Number(intent.createdAt || 0) <= AUTO_CAPTURE_INTENT_TTL_MS;
+  if (intent.autoCapture && isFresh) {
+    await runCapture();
+  }
+}
+
 elements.captureButton.addEventListener('click', runCapture);
 elements.saveButton.addEventListener('click', runSave);
 elements.optionsButton.addEventListener('click', openOptions);
 updateSaveButton();
+consumeAutoCaptureIntent().catch((error) => {
+  setStatus('error', 'Shortcut Failed', error.message || String(error));
+});

@@ -202,6 +202,69 @@ The sibling description `.txt` file should keep matching the JSON basename.
 Implementation was explicitly approved and completed. Manual verification remains pending.
 
 ---
+### Phase 5: Single Auto-Capture Shortcut
+
+**Status:** Work Complete
+
+**Observed Behavior:**
+After repository recovery, the extension manifest no longer appears to contain the shortcut/background command wiring that previously supported keyboard shortcuts. The user wants one shortcut only: `Alt+Shift+L` should bring up the LinkedIn Job Capture screen and automatically run Capture Active Tab.
+
+**Desired Behavior:**
+Pressing `Alt+Shift+L` while a LinkedIn job page is active should:
+
+- open the LinkedIn Job Capture popup/screen
+- automatically run Capture Active Tab
+- show the captured summary in the popup
+- not save the listing or append `job-tracking.csv` until the user explicitly presses Save
+
+There should not be a second shortcut for opening the popup without capture in this phase.
+
+**Proposed Files To Change:**
+- `extension/manifest.json`
+- `extension/background/background.js` if background command handling needs to be restored
+- `extension/popup/popup.js` if popup auto-capture intent handling needs to be restored
+- `extension/README.md` for shortcut documentation
+- `doc/planning/DevCycle007.md` to record implementation and verification results after approval
+
+**Risks / Unknowns:**
+- Edge may keep local shortcut assignments in `edge://extensions/shortcuts` after manifest changes; the user may need to manually clear or reassign the shortcut.
+- `chrome.action.openPopup()` support in Edge should be verified manually.
+- The extension currently shows version `0.0.7`; implementing this phase should include a version bump for reload verification.
+- Restoring shortcut behavior may require reintroducing a background service worker that was lost during repository recovery.
+
+**Tasks:**
+- [x] Add or restore a single `Alt+Shift+L` command for auto-capture.
+- [x] Ensure the shortcut opens the popup/screen and runs Capture Active Tab automatically.
+- [x] Ensure the shortcut does not save files or append CSV rows.
+- [x] Remove or avoid any separate popup-only shortcut.
+- [x] Bump the manifest version for reload verification.
+- [x] Update shortcut documentation in `extension/README.md`.
+
+**Regression Checks:**
+- [x] Parse `extension/manifest.json` as JSON.
+- [x] `node --check extension/background/background.js` if that file is added or restored.
+- [x] `node --check extension/popup/popup.js` if changed.
+- [x] `node extension/tests/captureActivePage.smoke.test.mjs`.
+- [x] `node extension/tests/persistence.test.mjs`.
+
+**Manual Tests:**
+- [ ] Reload the unpacked extension and confirm the new version number.
+- [ ] Open `edge://extensions/shortcuts` and confirm or assign `Alt+Shift+L` for the auto-capture command.
+- [ ] On a LinkedIn job page, press `Alt+Shift+L` and confirm the popup opens.
+- [ ] Confirm Capture Active Tab runs automatically.
+- [ ] Confirm no files are saved and no CSV rows are appended until Save is pressed.
+
+**Implementation Notes:**
+- `extension/manifest.json` now declares a single `capture-active-tab` command with default shortcut `Alt+Shift+L`.
+- `extension/manifest.json` version was bumped to `0.0.7.1` for reload verification.
+- `extension/background/background.js` was restored to set an auto-capture popup intent and open the extension popup.
+- `extension/popup/popup.js` now consumes the auto-capture intent once on popup load and runs the existing capture flow.
+- `extension/README.md` now documents the single shortcut and background worker.
+- No save behavior changed; the shortcut captures only and still requires the user to press Save.
+**Approval Checkpoint:**
+Implementation was explicitly approved and completed. Manual verification remains pending.
+
+---
 ## Candidate Phase Template
 
 Use this template when adding a bug-fix or minor-improvement phase during DC7.

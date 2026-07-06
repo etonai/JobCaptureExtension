@@ -1,16 +1,28 @@
 {
-  "manifest_version": 3,
-  "name": "LinkedIn Job Capture",
-  "version": "0.0.7",
-  "description": "Capture the currently open LinkedIn job posting into a local job search project.",
-  "action": {
-    "default_title": "Capture LinkedIn Job",
-    "default_popup": "popup/popup.html"
-  },
-  "options_page": "options/options.html",
-  "permissions": [
-    "activeTab",
-    "scripting",
-    "storage"
-  ]
+    "manifest_version":  3,
+    "name":  "LinkedIn Job Capture",
+    "version":  "0.0.7.1",
+    "description":  "Capture the currently open LinkedIn job posting into a local job search project.",
+    "action":  {
+                   "default_title":  "Capture LinkedIn Job",
+                   "default_popup":  "popup/popup.html"
+               },
+    "background":  {
+                       "service_worker":  "background/background.js",
+                       "type":  "module"
+                   },
+    "commands":  {
+                     "capture-active-tab":  {
+                                                "suggested_key":  {
+                                                                      "default":  "Alt+Shift+L"
+                                                                  },
+                                                "description":  "Open LinkedIn Job Capture and capture the active tab"
+                                            }
+                 },
+    "options_page":  "options/options.html",
+    "permissions":  [
+                        "activeTab",
+                        "scripting",
+                        "storage"
+                    ]
 }
