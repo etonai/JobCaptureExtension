@@ -30,7 +30,7 @@ export function baseListingFilename(record) {
   const company = slugify(record.company, 'unknown-company', 40);
   const title = slugify(record.title, 'unknown-title', 56);
   const id = slugify(record.linkedinJobId || fallbackId(record), 'no-job-id', 32);
-  return `${captureDate}_${company}_${title}_${id}.json`;
+  return `${company}_${captureDate}_${title}_${id}.json`;
 }
 
 export function filenameWithCollisionSuffix(filename, suffix) {

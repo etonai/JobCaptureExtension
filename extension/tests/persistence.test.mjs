@@ -84,12 +84,12 @@ function runFilenameTests() {
   assert(slugify('  ***  ', 'fallback') === 'fallback', 'Expected blank slug fallback.');
 
   const filename = baseListingFilename(sampleRecord());
-  assert(filename === '2026-07-05_starbucks-inc_software-engineer-sr_123456789.json', `Unexpected filename: ${filename}`);
+  assert(filename === 'starbucks-inc_2026-07-05_software-engineer-sr_123456789.json', `Unexpected filename: ${filename}`);
   assert(filenameWithCollisionSuffix(filename, 2).endsWith('-2.json'), 'Expected collision suffix.');
   assert(savedListingPath(filename) === `saved-listings/${filename}`, 'Expected project-relative saved listing path.');
 
   const noJobId = baseListingFilename(sampleRecord({ linkedinJobId: '' }));
-  assert(/2026-07-05_starbucks-inc_software-engineer-sr_20260705210000\.json/.test(noJobId), `Unexpected fallback id filename: ${noJobId}`);
+  assert(/starbucks-inc_2026-07-05_software-engineer-sr_20260705210000\.json/.test(noJobId), `Unexpected fallback id filename: ${noJobId}`);
 }
 
 function fakeDirectory(existingNames = []) {

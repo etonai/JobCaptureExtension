@@ -1,4 +1,4 @@
-﻿# LinkedIn Job Capture Extension
+# LinkedIn Job Capture Extension
 
 A Microsoft Edge browser extension for capturing the currently open LinkedIn job posting into a structured, reviewable record.
 
@@ -82,11 +82,11 @@ A likely project folder layout is:
 Job Search Project/
   job-tracking.csv
   saved-listings/
-    2026-07-05_starbucks_software-engineer-sr.json
-    2026-07-05_easypost_software-engineer-iii.json
+    starbucks_2026-07-05_software-engineer-sr.json
+    easypost_2026-07-05_software-engineer-iii.json
 ```
 
-The exact file names can be designed later, but the first iteration should use CSV for the tracking spreadsheet. The extension should treat the project folder as durable configuration rather than asking the user to choose a save location on every capture.
+New saved listing file names should be company-first so saved listings are easier to find by company. The first iteration should use CSV for the tracking spreadsheet. The extension should treat the project folder as durable configuration rather than asking the user to choose a save location on every capture.
 
 ## Spreadsheet Tracking
 

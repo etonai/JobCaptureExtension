@@ -75,8 +75,8 @@ The extension currently uses plain JavaScript with no build step. This keeps unp
 Job Search Project/
   job-tracking.csv
   saved-listings/
-    2026-07-05_starbucks_software-engineer-sr_123456789.json
-    2026-07-05_starbucks_software-engineer-sr_123456789.txt
+    starbucks_2026-07-05_software-engineer-sr_123456789.json
+    starbucks_2026-07-05_software-engineer-sr_123456789.txt
 ```
 
 The CSV uses the locked first-version schema from `doc/planning/ExtensionDesign.md`. Existing CSV files with mismatched headers block CSV append, but the JSON listing and description text file remain saved when possible.
