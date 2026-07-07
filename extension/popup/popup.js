@@ -1,5 +1,6 @@
 import { captureActivePage } from '../content/captureActivePage.js';
-import { getProjectFolderStatus } from '../shared/projectFolderStore.js';
+import { findPriorCompanyCaptures } from '../shared/csv.js';
+import { ensureProjectPermission, getProjectFolderStatus, getStoredProjectFolder } from '../shared/projectFolderStore.js';
 import { saveCaptureRecord } from '../shared/saveListing.js';
 
 const AUTO_CAPTURE_INTENT_KEY = 'popupIntent';
@@ -40,6 +41,37 @@ function displayValue(value) {
   return value || 'Not captured';
 }
 
+
+function priorCompanyWarningMessage(record, summary) {
+  const entryText = summary.count === 1 ? '1 prior CSV entry' : `${summary.count} prior CSV entries`;
+  const dateText = summary.mostRecentDate ? ` Most recent: ${summary.mostRecentDate}.` : '';
+  return `You have ${entryText} for ${record.company}.${dateText}`;
+}
+
+async function findPriorCompanyWarning(record) {
+  if (!record?.company) {
+    return null;
+  }
+
+  try {
+    const projectHandle = await getStoredProjectFolder();
+    if (!projectHandle) {
+      return null;
+    }
+
+    await ensureProjectPermission(projectHandle);
+
+    const csvHandle = await projectHandle.getFileHandle('job-tracking.csv', { create: false });
+    const csvFile = await csvHandle.getFile();
+    const summary = findPriorCompanyCaptures(await csvFile.text(), record.company);
+    return summary.count > 0 ? summary : null;
+  } catch (error) {
+    if (error?.name === 'NotFoundError') {
+      return null;
+    }
+    return null;
+  }
+}
 function updateSaveButton() {
   const canSave = Boolean(lastCaptureRecord);
   elements.saveButton.classList.toggle('hidden', !canSave);
@@ -122,7 +154,10 @@ async function runCapture() {
       elements.notesInput.value = lastCaptureRecord.notes || '';
       updateSaveButton();
       const folderStatus = await getProjectFolderStatus();
-      if (folderStatus.configured) {
+      const priorCompany = await findPriorCompanyWarning(lastCaptureRecord);
+      if (priorCompany) {
+        setStatus('warning', 'Previously captured company', priorCompanyWarningMessage(lastCaptureRecord, priorCompany));
+      } else if (folderStatus.configured) {
         setStatus('captured', 'Captured', 'Structured job fields captured. Review the summary, then save to your project folder.');
       } else {
         setStatus('captured', 'Captured', 'Structured job fields captured. Configure a project folder in Options before saving.');

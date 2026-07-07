@@ -18,7 +18,9 @@ Implemented in the current shell:
 - saved listing JSON writes into `saved-listings/`
 - sibling description-only `.txt` and readable `.md` writes into `saved-listings/`
 - `job-tracking.csv` creation/header validation/append
-- unsupported-page, save-success, save-error, and partial-success states`r`n- user-entered notes saved to JSON and the CSV `notes` column
+- unsupported-page, save-success, save-error, and partial-success states
+- user-entered notes saved to JSON and the CSV `notes` column
+- prior company warning after capture when the company already appears in `job-tracking.csv`
 
 It does not implement the final editable review UI. The Save action writes the current captured parser result; DevCycle006 will add richer field editing before save.
 
@@ -69,7 +71,7 @@ The extension currently uses plain JavaScript with no build step. This keeps unp
 
 5. Pin or open the extension action.
 6. Open Options and choose a project folder.
-7. Open a LinkedIn job page, capture, optionally enter notes, then save.
+7. Open a LinkedIn job page, capture, review any prior-company warning, optionally enter notes, then save.
 ## Keyboard Shortcut
 
 Default shortcut:
@@ -93,7 +95,7 @@ Job Search Project/
     starbucks_2026-07-05_software-engineer-sr_123456789.md
 ```
 
-The CSV uses the locked first-version schema from `doc/planning/ExtensionDesign.md`. User-entered popup notes are saved into the existing `notes` column. Existing CSV files with mismatched headers block CSV append, but the JSON listing, description text file, and description Markdown file remain saved when possible.
+The CSV uses the locked first-version schema from `doc/planning/ExtensionDesign.md`. User-entered popup notes are saved into the existing `notes` column. After capture, the extension also checks existing CSV rows and warns when the captured company has appeared before. Existing CSV files with mismatched headers block CSV append, but the JSON listing, description text file, and description Markdown file remain saved when possible.
 
 ## Local Checks
 

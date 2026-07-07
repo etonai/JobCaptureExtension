@@ -3,6 +3,9 @@ import {
   CSV_HEADER_LINE,
   CSV_HEADER_TEXT,
   escapeCsvField,
+  findPriorCompanyCaptures,
+  normalizeCompanyForMatch,
+  parseCsvRows,
   recordToCsvValues,
   serializeCsvRow,
   serializeRecordCsvRow,
@@ -79,6 +82,20 @@ function runCsvTests() {
   assert(recordRow.includes('"Starbucks, Inc."'), 'Expected company comma to be quoted.');
   assert(recordRow.includes('"Software ""Engineer"" Sr"'), 'Expected title quote to be escaped.');
   assert(recordRow.endsWith('\r\n'), 'Expected serialized record row to use CRLF.');
+
+  const parsedRows = parseCsvRows(`${CSV_HEADER_TEXT}${recordRow}`);
+  assert(parsedRows.length === 2, 'Expected CSV parser to read header and one record row.');
+  assert(parsedRows[1][2] === 'Starbucks, Inc.', 'Expected CSV parser to preserve company comma.');
+  assert(parsedRows[1][14] === record.notes, 'Expected CSV parser to preserve quoted multiline notes.');
+
+  assert(normalizeCompanyForMatch('Starbucks, Inc.') === normalizeCompanyForMatch('starbucks'), 'Expected simple company suffix normalization.');
+  const priorCsvText = `${CSV_HEADER_TEXT}${recordRow}${serializeRecordCsvRow(sampleRecord({ captureDateLocal: '2026-07-06', company: 'EasyPost' }))}`;
+  const priorSummary = findPriorCompanyCaptures(priorCsvText, 'Starbucks');
+  assert(priorSummary.count === 1, `Expected one prior Starbucks match, got ${priorSummary.count}.`);
+  const uberCsvText = `${CSV_HEADER_TEXT}${serializeRecordCsvRow(sampleRecord({ company: 'Uber Technologies, Inc.', captureDateLocal: '2026-07-04' }))}`;
+  const uberSummary = findPriorCompanyCaptures(uberCsvText, 'Uber');
+  assert(uberSummary.count === 1, `Expected Uber to match Uber Technologies, got ${uberSummary.count}.`);
+  assert(priorSummary.mostRecentDate === '2026-07-05', `Expected most recent date, got ${priorSummary.mostRecentDate}.`);
 }
 
 function runFilenameTests() {
