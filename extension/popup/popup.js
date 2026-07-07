@@ -8,6 +8,7 @@ const AUTO_CAPTURE_INTENT_TTL_MS = 10_000;
 const elements = {
   captureButton: document.querySelector('#captureButton'),
   saveButton: document.querySelector('#saveButton'),
+  notesInput: document.querySelector('#notesInput'),
   optionsButton: document.querySelector('#optionsButton'),
   statusPanel: document.querySelector('#statusPanel'),
   statusTitle: document.querySelector('#statusTitle'),
@@ -71,6 +72,7 @@ function clearResult() {
   lastCaptureRecord = null;
   updateSaveButton();
   elements.resultPanel.classList.add('hidden');
+  elements.notesInput.value = '';
   for (const key of [
     'resultCompany',
     'resultJobTitle',
@@ -117,6 +119,7 @@ async function runCapture() {
     setResult(result);
     if (result.ok) {
       lastCaptureRecord = result.record;
+      elements.notesInput.value = lastCaptureRecord.notes || '';
       updateSaveButton();
       const folderStatus = await getProjectFolderStatus();
       if (folderStatus.configured) {
@@ -140,6 +143,7 @@ async function runSave() {
     return;
   }
 
+  lastCaptureRecord.notes = elements.notesInput.value;
   elements.saveButton.disabled = true;
   elements.captureButton.disabled = true;
   setStatus('capturing', 'Saving', 'Writing JSON listing and CSV tracking row.');
@@ -147,6 +151,7 @@ async function runSave() {
   try {
     const result = await saveCaptureRecord(lastCaptureRecord);
     lastCaptureRecord = result.record;
+    elements.notesInput.value = lastCaptureRecord.notes || '';
     if (result.partial) {
       setResult({ ok: true, record: lastCaptureRecord, warnings: [{ message: result.csvError }] });
       setStatus('warning', 'Partially Saved', `JSON saved to ${result.savedListingPath}. CSV append failed: ${result.csvError}`);

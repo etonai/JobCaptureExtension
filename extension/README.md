@@ -16,9 +16,9 @@ Implemented in the current shell:
 - structured LinkedIn job capture object
 - summary display for parsed fields
 - saved listing JSON writes into `saved-listings/`
-- sibling description-only `.txt` writes into `saved-listings/`
+- sibling description-only `.txt` and readable `.md` writes into `saved-listings/`
 - `job-tracking.csv` creation/header validation/append
-- unsupported-page, save-success, save-error, and partial-success states
+- unsupported-page, save-success, save-error, and partial-success states`r`n- user-entered notes saved to JSON and the CSV `notes` column
 
 It does not implement the final editable review UI. The Save action writes the current captured parser result; DevCycle006 will add richer field editing before save.
 
@@ -50,7 +50,7 @@ extension/
   PARSER_NOTES.md
 ```
 
-`background/background.js` owns shortcut command handling. `popup/popup.js` owns popup state, active-tab injection, auto-capture intent consumption, and minimal Save orchestration. Shared modules own CSV serialization, filename generation, project folder handle storage, and JSON/TXT/CSV writes.
+`background/background.js` owns shortcut command handling. `popup/popup.js` owns popup state, active-tab injection, auto-capture intent consumption, and minimal Save orchestration. Shared modules own CSV serialization, filename generation, project folder handle storage, and JSON/TXT/MD/CSV writes.
 
 ## Tooling Decision
 
@@ -69,7 +69,7 @@ The extension currently uses plain JavaScript with no build step. This keeps unp
 
 5. Pin or open the extension action.
 6. Open Options and choose a project folder.
-7. Open a LinkedIn job page, capture, then save.
+7. Open a LinkedIn job page, capture, optionally enter notes, then save.
 ## Keyboard Shortcut
 
 Default shortcut:
@@ -90,9 +90,10 @@ Job Search Project/
   saved-listings/
     starbucks_2026-07-05_software-engineer-sr_123456789.json
     starbucks_2026-07-05_software-engineer-sr_123456789.txt
+    starbucks_2026-07-05_software-engineer-sr_123456789.md
 ```
 
-The CSV uses the locked first-version schema from `doc/planning/ExtensionDesign.md`. Existing CSV files with mismatched headers block CSV append, but the JSON listing and description text file remain saved when possible.
+The CSV uses the locked first-version schema from `doc/planning/ExtensionDesign.md`. User-entered popup notes are saved into the existing `notes` column. Existing CSV files with mismatched headers block CSV append, but the JSON listing, description text file, and description Markdown file remain saved when possible.
 
 ## Local Checks
 

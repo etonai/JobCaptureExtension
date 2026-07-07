@@ -86,7 +86,7 @@ Job Search Project/
     easypost_2026-07-05_software-engineer-iii.json
 ```
 
-New saved listing file names should be company-first so saved listings are easier to find by company. The first iteration should use CSV for the tracking spreadsheet. The extension should treat the project folder as durable configuration rather than asking the user to choose a save location on every capture.
+New saved listing file names should be company-first so saved listings are easier to find by company. Each saved listing may include the structured `.json` capture, a plain `.txt` description, and a readable `.md` description. The first iteration should use CSV for the tracking spreadsheet. The extension should treat the project folder as durable configuration rather than asking the user to choose a save location on every capture.
 
 ## Spreadsheet Tracking
 

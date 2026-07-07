@@ -44,10 +44,18 @@ export function descriptionTextFilename(jsonFilename) {
   return jsonFilename.replace(/\.json$/i, '.txt');
 }
 
+export function descriptionMarkdownFilename(jsonFilename) {
+  return jsonFilename.replace(/\.json$/i, '.md');
+}
+
 export function savedListingPath(filename) {
   return `saved-listings/${filename}`;
 }
 
 export function savedDescriptionTextPath(jsonFilename) {
   return savedListingPath(descriptionTextFilename(jsonFilename));
+}
+
+export function savedDescriptionMarkdownPath(jsonFilename) {
+  return savedListingPath(descriptionMarkdownFilename(jsonFilename));
 }

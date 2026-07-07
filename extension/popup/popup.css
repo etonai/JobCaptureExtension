@@ -81,6 +81,37 @@ h2 {
   cursor: default;
   opacity: .65;
 }
+.notes-field {
+  display: block;
+  margin-top: 12px;
+}
+
+.notes-field span {
+  display: block;
+  margin-bottom: 6px;
+  color: #5f6f7f;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.notes-field textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 86px;
+  resize: vertical;
+  border: 1px solid #b9c6d3;
+  border-radius: 6px;
+  padding: 8px 10px;
+  font: inherit;
+  line-height: 1.35;
+  color: #17202a;
+  background: #fff;
+}
+
+.notes-field textarea:focus {
+  outline: 2px solid #8ab7e6;
+  outline-offset: 1px;
+}
 
 .notice,
 .status-panel,

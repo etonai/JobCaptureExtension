@@ -1,8 +1,10 @@
 import { CSV_HEADER_TEXT, serializeRecordCsvRow, validateCsvHeader } from './csv.js';
 import {
   baseListingFilename,
+  descriptionMarkdownFilename,
   descriptionTextFilename,
   filenameWithCollisionSuffix,
+  savedDescriptionMarkdownPath,
   savedDescriptionTextPath,
   savedListingPath
 } from './filename.js';
@@ -64,7 +66,12 @@ export async function reserveListingFilename(savedListingsHandle, record) {
   for (let suffix = 1; suffix < 1000; suffix += 1) {
     const filename = filenameWithCollisionSuffix(baseName, suffix);
     const txtFilename = descriptionTextFilename(filename);
-    if (!(await fileExists(savedListingsHandle, filename)) && !(await fileExists(savedListingsHandle, txtFilename))) {
+    const mdFilename = descriptionMarkdownFilename(filename);
+    if (
+      !(await fileExists(savedListingsHandle, filename))
+      && !(await fileExists(savedListingsHandle, txtFilename))
+      && !(await fileExists(savedListingsHandle, mdFilename))
+    ) {
       return filename;
     }
   }
@@ -121,6 +128,8 @@ export async function saveCaptureRecord(record) {
 
   await writeTextFile(jsonHandle, `${JSON.stringify(finalRecord, null, 2)}\n`);
 
+  const mdFilename = descriptionMarkdownFilename(filename);
+
   try {
     const txtHandle = await savedListingsHandle.getFileHandle(txtFilename, { create: true });
     const existingTxtFile = await txtHandle.getFile();
@@ -134,9 +143,33 @@ export async function saveCaptureRecord(record) {
       partial: true,
       savedListingPath: finalRecord.savedListingPath,
       savedDescriptionTextPath: savedDescriptionTextPath(filename),
+      savedDescriptionMarkdownPath: savedDescriptionMarkdownPath(filename),
       descriptionTextSaved: false,
+      descriptionMarkdownSaved: false,
       csvAppended: false,
       partialMessage: `JSON saved to ${finalRecord.savedListingPath}, but description text save failed: ${error.message || String(error)}`,
+      record: finalRecord
+    };
+  }
+
+  try {
+    const mdHandle = await savedListingsHandle.getFileHandle(mdFilename, { create: true });
+    const existingMdFile = await mdHandle.getFile();
+    if (existingMdFile.size > 0) {
+      throw new Error(`Refusing to overwrite existing description Markdown file: ${mdFilename}`);
+    }
+    await writeTextFile(mdHandle, finalRecord.descriptionMarkdown || finalRecord.description || '');
+  } catch (error) {
+    return {
+      ok: true,
+      partial: true,
+      savedListingPath: finalRecord.savedListingPath,
+      savedDescriptionTextPath: savedDescriptionTextPath(filename),
+      savedDescriptionMarkdownPath: savedDescriptionMarkdownPath(filename),
+      descriptionTextSaved: true,
+      descriptionMarkdownSaved: false,
+      csvAppended: false,
+      partialMessage: `JSON and description text saved, but description Markdown save failed: ${error.message || String(error)}`,
       record: finalRecord
     };
   }
@@ -149,7 +182,9 @@ export async function saveCaptureRecord(record) {
       partial: false,
       savedListingPath: finalRecord.savedListingPath,
       savedDescriptionTextPath: savedDescriptionTextPath(filename),
+      savedDescriptionMarkdownPath: savedDescriptionMarkdownPath(filename),
       descriptionTextSaved: true,
+      descriptionMarkdownSaved: true,
       csvAppended: true,
       csvCreated: csvState.created,
       record: finalRecord
@@ -160,10 +195,12 @@ export async function saveCaptureRecord(record) {
       partial: true,
       savedListingPath: finalRecord.savedListingPath,
       savedDescriptionTextPath: savedDescriptionTextPath(filename),
+      savedDescriptionMarkdownPath: savedDescriptionMarkdownPath(filename),
       descriptionTextSaved: true,
+      descriptionMarkdownSaved: true,
       csvAppended: false,
       csvError: error.message || String(error),
-      partialMessage: `JSON and description text saved, but CSV append failed: ${error.message || String(error)}`,
+      partialMessage: `JSON, description text, and description Markdown saved, but CSV append failed: ${error.message || String(error)}`,
       record: finalRecord
     };
   }

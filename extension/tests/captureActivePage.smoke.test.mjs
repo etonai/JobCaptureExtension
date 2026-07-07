@@ -2,7 +2,75 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { captureActivePage } from '../content/captureActivePage.js';
 
-function setMockPage({ href, hostname, pathname, title, bodyText, headings = [] }) {
+function textNode(text) {
+  return { nodeType: 3, textContent: text };
+}
+
+function elementNode(tagName, attrs = {}, children = []) {
+  const node = {
+    nodeType: 1,
+    tagName: tagName.toUpperCase(),
+    attrs,
+    childNodes: [],
+    parentElement: null,
+    nextElementSibling: null,
+    get textContent() {
+      return this.childNodes.map((child) => child.textContent || '').join('');
+    },
+    get innerText() {
+      return this.textContent;
+    },
+    getAttribute(name) {
+      return this.attrs[name] || '';
+    },
+    querySelector(selector) {
+      const stack = [...this.childNodes];
+      while (stack.length) {
+        const current = stack.shift();
+        if (current?.nodeType === 1) {
+          if (selector === '[data-testid="expandable-text-box"]' && current.attrs['data-testid'] === 'expandable-text-box') {
+            return current;
+          }
+          stack.unshift(...current.childNodes);
+        }
+      }
+      return null;
+    },
+    closest(selector) {
+      let current = this;
+      while (current) {
+        const componentKey = current.attrs?.componentkey || '';
+        const sduiComponent = current.attrs?.['data-sdui-component'] || '';
+        if (selector.includes('JobDetails_AboutTheJob') && componentKey.startsWith('JobDetails_AboutTheJob')) {
+          return current;
+        }
+        if (selector.includes('aboutTheJob') && sduiComponent.includes('aboutTheJob')) {
+          return current;
+        }
+        current = current.parentElement;
+      }
+      return null;
+    }
+  };
+
+  node.childNodes = children;
+  for (let i = 0; i < children.length; i += 1) {
+    const child = children[i];
+    if (child?.nodeType === 1) {
+      child.parentElement = node;
+      child.nextElementSibling = children.slice(i + 1).find((sibling) => sibling?.nodeType === 1) || null;
+    }
+  }
+  return node;
+}
+
+function linkedInAboutJobDom(children) {
+  const heading = elementNode('h2', {}, [textNode('About the job')]);
+  const description = elementNode('span', { 'data-testid': 'expandable-text-box' }, children);
+  const container = elementNode('div', { componentkey: 'JobDetails_AboutTheJob_123' }, [heading, description]);
+  return { heading, container };
+}
+function setMockPage({ href, hostname, pathname, title, bodyText, headings = [], domHeadings = [] }) {
   globalThis.window = {
     location: { href, hostname, pathname }
   };
@@ -10,6 +78,9 @@ function setMockPage({ href, hostname, pathname, title, bodyText, headings = [] 
     title,
     body: { innerText: bodyText },
     querySelectorAll(selector) {
+      if (selector === 'h1, h2, h3, h4') {
+        return domHeadings;
+      }
       if (selector !== 'h1, h2') {
         return [];
       }
@@ -96,6 +167,45 @@ function runStarbucksFixtureTest() {
 }
 
 
+
+function runMarkdownDescriptionDomTest() {
+  const { heading } = linkedInAboutJobDom([
+    elementNode('p', {}, [elementNode('strong', {}, [textNode('Responsibilities:')])]),
+    elementNode('ul', {}, [
+      elementNode('li', {}, [textNode('Build reliable systems')]),
+      elementNode('li', {}, [textNode('Improve developer tooling')])
+    ]),
+    elementNode('p', {}, [
+      textNode('Learn more at '),
+      elementNode('a', { href: 'https://example.com/jobs' }, [textNode('our careers page')]),
+      textNode('.')
+    ])
+  ]);
+
+  setMockPage({
+    href: 'https://www.linkedin.com/jobs/view/777888999',
+    hostname: 'www.linkedin.com',
+    pathname: '/jobs/view/777888999',
+    title: 'Markdown Engineer | Example Co | LinkedIn',
+    bodyText: [
+      'Example Co',
+      'Markdown Engineer',
+      'Remote · 1 day ago · 10 applicants',
+      'Easy Apply',
+      'About the job',
+      'Plain fallback description'
+    ].join('\n'),
+    domHeadings: [heading]
+  });
+
+  const result = captureActivePage();
+  const markdown = result.record.descriptionMarkdown;
+  assert(result.ok === true, 'Expected Markdown DOM fixture to be supported.');
+  assert(markdown.includes('**Responsibilities:**'), `Expected bold Markdown heading, got ${markdown}.`);
+  assert(markdown.includes('- Build reliable systems'), `Expected first Markdown bullet, got ${markdown}.`);
+  assert(markdown.includes('- Improve developer tooling'), `Expected second Markdown bullet, got ${markdown}.`);
+  assert(markdown.includes('[our careers page](https://example.com/jobs)'), `Expected Markdown link, got ${markdown}.`);
+}
 function runHtmlFixtureReferenceChecks() {
   const easyPostHtml = readFixture('doc/examples/easyposteasyapplybare.html');
   const starbucksHtml = readFixture('doc/examples/Starbucksmoreunselectedbare.html');
@@ -124,6 +234,7 @@ function runUnsupportedPageTest() {
 
 runEasyPostFixtureTest();
 runStarbucksFixtureTest();
+runMarkdownDescriptionDomTest();
 runUnsupportedPageTest();
 runHtmlFixtureReferenceChecks();
 

@@ -62,6 +62,7 @@ export function captureActivePage() {
       hiringStatusText: '',
       applyType: 'Unknown',
       description: '',
+      descriptionMarkdown: '',
       posterRequirements: '',
       benefits: '',
       additionalSections: [],
@@ -278,6 +279,179 @@ export function captureActivePage() {
       record.benefits = linesToBlock(lines.slice(benefitsIndex + 1, end));
     }
   }
+  function plainTextDescriptionToMarkdown(text) {
+    return normalizeBlock(text || '');
+  }
+
+  function nodeText(node) {
+    return normalizeLine(node?.innerText || node?.textContent || '');
+  }
+
+  function isElementNode(node) {
+    return node?.nodeType === 1 || Boolean(node?.tagName);
+  }
+
+  function isTextNode(node) {
+    return node?.nodeType === 3;
+  }
+
+  function childNodes(node) {
+    return Array.from(node?.childNodes || []);
+  }
+
+  function compactInline(text) {
+    return String(text || '').replace(/[ \t\n\r]+/g, ' ').trim();
+  }
+
+  function markdownInline(node) {
+    if (!node) {
+      return '';
+    }
+    if (isTextNode(node)) {
+      return compactInline(node.textContent || '');
+    }
+    if (!isElementNode(node)) {
+      return '';
+    }
+
+    const tag = String(node.tagName || '').toLowerCase();
+    if (tag === 'br') {
+      return '\n';
+    }
+    if (['script', 'style', 'svg', 'button'].includes(tag)) {
+      return '';
+    }
+
+    const text = childNodes(node).map(markdownInline).join('').replace(/[ \t]+\n/g, '\n').replace(/\n[ \t]+/g, '\n');
+    const trimmed = compactInline(text);
+    if (!trimmed) {
+      return '';
+    }
+
+    if (tag === 'strong' || tag === 'b') {
+      return `**${trimmed}**`;
+    }
+
+    if (tag === 'a') {
+      const href = node.getAttribute?.('href') || '';
+      return href ? `[${trimmed}](${href})` : trimmed;
+    }
+
+    return text;
+  }
+
+  function markdownBlock(node) {
+    if (!node) {
+      return '';
+    }
+    if (isTextNode(node)) {
+      return compactInline(node.textContent || '');
+    }
+    if (!isElementNode(node)) {
+      return '';
+    }
+
+    const tag = String(node.tagName || '').toLowerCase();
+    if (['script', 'style', 'svg', 'button'].includes(tag)) {
+      return '';
+    }
+    if (tag === 'br') {
+      return '\n';
+    }
+
+    if (tag === 'ul' || tag === 'ol') {
+      const ordered = tag === 'ol';
+      const items = childNodes(node)
+        .filter((child) => String(child?.tagName || '').toLowerCase() === 'li')
+        .map((child, index) => {
+          const itemText = normalizeBlock(childNodes(child).map(markdownBlock).join(' ')) || compactInline(nodeText(child));
+          if (!itemText) {
+            return '';
+          }
+          const marker = ordered ? `${index + 1}.` : '-';
+          return `${marker} ${itemText.replace(/\n/g, '\n  ')}`;
+        })
+        .filter(Boolean);
+      return items.length ? `${items.join('\n')}\n\n` : '';
+    }
+
+    if (tag === 'li') {
+      return normalizeBlock(childNodes(node).map(markdownBlock).join(' ')) || compactInline(nodeText(node));
+    }
+
+    if (/^h[1-6]$/.test(tag)) {
+      const level = Math.min(Number(tag.slice(1)) + 1, 6);
+      const heading = compactInline(markdownInline(node));
+      return heading ? `${'#'.repeat(level)} ${heading}\n\n` : '';
+    }
+
+    if (tag === 'p') {
+      const text = normalizeBlock(markdownInline(node));
+      return text ? `${text}\n\n` : '';
+    }
+
+    if (tag === 'div') {
+      const text = normalizeBlock(childNodes(node).map(markdownBlock).join('')) || compactInline(markdownInline(node));
+      return text ? `${text}\n\n` : '';
+    }
+
+    return childNodes(node).map(markdownBlock).join('');
+  }
+
+  function findAboutJobHeading(doc) {
+    const headings = Array.from(doc?.querySelectorAll?.('h1, h2, h3, h4') || []);
+    return headings.find((heading) => /^About the job$/i.test(nodeText(heading))) || null;
+  }
+
+  function findAboutJobContainer(heading) {
+    const closestContainer = heading?.closest?.('[componentkey^="JobDetails_AboutTheJob"], [data-sdui-component*="aboutTheJob"]');
+    if (closestContainer) {
+      return closestContainer;
+    }
+
+    let current = heading?.parentElement || null;
+    for (let depth = 0; current && depth < 8; depth += 1) {
+      const text = nodeText(current);
+      if (/^About the job\b/i.test(text) && text.length > 'About the job'.length + 40) {
+        return current;
+      }
+      current = current.parentElement || null;
+    }
+    return null;
+  }
+
+  function findDescriptionRoot(container, heading) {
+    const expandable = container?.querySelector?.('[data-testid="expandable-text-box"]');
+    if (expandable) {
+      return expandable;
+    }
+
+    let current = heading?.parentElement || null;
+    while (current?.parentElement && current.parentElement !== container) {
+      current = current.parentElement;
+    }
+
+    let sibling = current?.nextElementSibling || heading?.nextElementSibling || null;
+    while (sibling) {
+      if (nodeText(sibling) && !/^About the job$/i.test(nodeText(sibling))) {
+        return sibling;
+      }
+      sibling = sibling.nextElementSibling || null;
+    }
+    return null;
+  }
+
+  function captureDescriptionMarkdownFromDom(doc) {
+    const heading = findAboutJobHeading(doc);
+    const container = findAboutJobContainer(heading);
+    const root = findDescriptionRoot(container, heading);
+    if (!root) {
+      return '';
+    }
+
+    const markdown = normalizeBlock(childNodes(root).map(markdownBlock).join('') || markdownBlock(root));
+    return markdown;
+  }
 
   function missingFieldWarnings(record) {
     const requiredForQuality = ['company', 'title', 'location', 'postedText', 'applyType', 'description'];
@@ -291,6 +465,7 @@ export function captureActivePage() {
     const lines = visibleLines(bodyText);
     parseHeaderFields(lines, record, pageTitle);
     parseDescriptionSections(lines, record);
+    record.descriptionMarkdown = captureDescriptionMarkdownFromDom(globalThis.document) || plainTextDescriptionToMarkdown(record.description);
 
     const parsedUrl = new URL(url);
     const isLinkedIn = isLinkedInHost(parsedUrl.hostname);

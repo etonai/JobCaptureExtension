@@ -10,13 +10,15 @@ import {
 } from '../shared/csv.js';
 import {
   baseListingFilename,
+  descriptionMarkdownFilename,
   descriptionTextFilename,
   filenameWithCollisionSuffix,
+  savedDescriptionMarkdownPath,
   savedDescriptionTextPath,
   savedListingPath,
   slugify
 } from '../shared/filename.js';
-import { reserveListingFilename } from '../shared/saveListing.js';
+import { reserveListingFilename, saveCaptureRecord } from '../shared/saveListing.js';
 
 function assert(condition, message) {
   if (!condition) {
@@ -44,12 +46,13 @@ function sampleRecord(overrides = {}) {
     promotionText: 'Promoted by hirer',
     hiringStatusText: 'Responses managed off LinkedIn',
     applyType: 'External Apply',
-    description: 'Line one\nLine two',
+    description: 'Line one\\nLine two',
+    descriptionMarkdown: 'Line one\\n\\nLine two',
     posterRequirements: '',
     benefits: '',
     additionalSections: [],
     savedListingPath: 'saved-listings/example.json',
-    notes: 'First line\nSecond line',
+    notes: 'First line, with comma\nSecond "quoted" line',
     ...overrides
   };
 }
@@ -87,6 +90,10 @@ function runFilenameTests() {
   assert(filename === 'starbucks-inc_2026-07-05_software-engineer-sr_123456789.json', `Unexpected filename: ${filename}`);
   assert(filenameWithCollisionSuffix(filename, 2).endsWith('-2.json'), 'Expected collision suffix.');
   assert(savedListingPath(filename) === `saved-listings/${filename}`, 'Expected project-relative saved listing path.');
+  assert(descriptionTextFilename(filename) === 'starbucks-inc_2026-07-05_software-engineer-sr_123456789.txt', 'Expected description text filename to replace json extension.');
+  assert(descriptionMarkdownFilename(filename) === 'starbucks-inc_2026-07-05_software-engineer-sr_123456789.md', 'Expected description Markdown filename to replace json extension.');
+  assert(savedDescriptionTextPath(filename) === 'saved-listings/starbucks-inc_2026-07-05_software-engineer-sr_123456789.txt', 'Expected saved description text path.');
+  assert(savedDescriptionMarkdownPath(filename) === 'saved-listings/starbucks-inc_2026-07-05_software-engineer-sr_123456789.md', 'Expected saved description Markdown path.');
 
   const noJobId = baseListingFilename(sampleRecord({ linkedinJobId: '' }));
   assert(/starbucks-inc_2026-07-05_software-engineer-sr_20260705210000\.json/.test(noJobId), `Unexpected fallback id filename: ${noJobId}`);
@@ -107,15 +114,151 @@ function fakeDirectory(existingNames = []) {
   };
 }
 
+
+function fakeWritableFile(initialText = '') {
+  let text = initialText;
+  let position = 0;
+  return {
+    get size() {
+      return text.length;
+    },
+    async text() {
+      return text;
+    },
+    handle: {
+      async getFile() {
+        return {
+          get size() {
+            return text.length;
+          },
+          async text() {
+            return text;
+          }
+        };
+      },
+      async createWritable() {
+        position = 0;
+        return {
+          async write(value) {
+            const valueText = String(value);
+            text = text.slice(0, position) + valueText + text.slice(position + valueText.length);
+            position += valueText.length;
+          },
+          async seek(offset) {
+            position = offset;
+          },
+          async close() {}
+        };
+      }
+    }
+  };
+}
+
+function fakeProjectHandle() {
+  const files = new Map();
+  const savedListings = {
+    name: 'saved-listings',
+    files,
+    async getFileHandle(name, options = {}) {
+      if (!files.has(name)) {
+        if (!options.create) {
+          const error = new Error('Not found');
+          error.name = 'NotFoundError';
+          throw error;
+        }
+        files.set(name, fakeWritableFile());
+      }
+      return files.get(name).handle;
+    }
+  };
+
+  return {
+    savedListings,
+    rootFiles: files,
+    async queryPermission() {
+      return 'granted';
+    },
+    async requestPermission() {
+      return 'granted';
+    },
+    async getDirectoryHandle(name, options = {}) {
+      if (name === 'saved-listings' && options.create) {
+        return savedListings;
+      }
+      throw new Error(`Unexpected directory: ${name}`);
+    },
+    async getFileHandle(name, options = {}) {
+      if (!files.has(name)) {
+        if (!options.create) {
+          const error = new Error('Not found');
+          error.name = 'NotFoundError';
+          throw error;
+        }
+        files.set(name, fakeWritableFile());
+      }
+      return files.get(name).handle;
+    }
+  };
+}
+
+async function runSaveCaptureRecordTest() {
+  const projectHandle = fakeProjectHandle();
+  globalThis.indexedDB = {
+    open() {
+      const request = {};
+      queueMicrotask(() => {
+        request.result = {
+          close() {},
+          objectStoreNames: { contains: () => true },
+          transaction() {
+            return {
+              objectStore() {
+                return {
+                  get(key) {
+                    const getRequest = {};
+                    queueMicrotask(() => {
+                      getRequest.result = key === 'projectFolder' ? projectHandle : null;
+                      getRequest.onsuccess?.();
+                    });
+                    return getRequest;
+                  }
+                };
+              }
+            };
+          }
+        };
+        request.onsuccess?.();
+      });
+      return request;
+    }
+  };
+
+  const result = await saveCaptureRecord(sampleRecord());
+  const jsonName = 'starbucks-inc_2026-07-05_software-engineer-sr_123456789.json';
+  const txtName = 'starbucks-inc_2026-07-05_software-engineer-sr_123456789.txt';
+  const mdName = 'starbucks-inc_2026-07-05_software-engineer-sr_123456789.md';
+
+  assert(result.ok === true && result.partial === false, `Expected full save success, got ${JSON.stringify(result)}`);
+  assert(result.csvAppended === true, 'Expected CSV append to succeed after sibling file writes.');
+  assert(projectHandle.savedListings.files.has(jsonName), 'Expected JSON file to be written.');
+  assert(projectHandle.savedListings.files.has(txtName), 'Expected TXT file to be written.');
+  assert(projectHandle.savedListings.files.has(mdName), 'Expected MD file to be written.');
+  assert(await projectHandle.savedListings.files.get(txtName).text() === sampleRecord().description, 'Expected TXT file to contain plain description.');
+  assert(await projectHandle.savedListings.files.get(mdName).text() === sampleRecord().descriptionMarkdown, 'Expected MD file to contain Markdown description.');
+  const csvText = await projectHandle.rootFiles.get('job-tracking.csv').text();
+  assert(csvText.includes('Starbucks, Inc.'), 'Expected CSV file to include saved record row.');
+  assert(csvText.includes('"First line, with comma\nSecond ""quoted"" line"'), 'Expected CSV file to quote and escape notes.');
+}
 async function runReservationTests() {
   const record = sampleRecord();
   const base = baseListingFilename(record);
-  const filename = await reserveListingFilename(fakeDirectory([base, filenameWithCollisionSuffix(base, 2)]), record);
+  const filename = await reserveListingFilename(fakeDirectory([base, descriptionTextFilename(base), descriptionMarkdownFilename(base), filenameWithCollisionSuffix(base, 2)]), record);
   assert(filename === filenameWithCollisionSuffix(base, 3), `Expected third filename candidate, got ${filename}`);
 }
 
 runCsvTests();
 runFilenameTests();
 await runReservationTests();
+await runSaveCaptureRecordTest();
 
 console.log('persistence helper tests passed');
