@@ -174,3 +174,20 @@ export function findPriorCompanyCaptures(csvText, company) {
     matches
   };
 }
+export function parseOldTrackingCompanies(text) {
+  return String(text ?? '')
+    .replace(/^\uFEFF/, '')
+    .split(/\r\n|\n|\r/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+export function findOldTrackingCompany(oldTrackingText, company) {
+  const match = parseOldTrackingCompanies(oldTrackingText)
+    .find((oldCompany) => companyMatches(oldCompany, company));
+
+  return match
+    ? { count: 1, company: match }
+    : { count: 0, company: '' };
+}
+

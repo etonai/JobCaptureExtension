@@ -3,9 +3,11 @@ import {
   CSV_HEADER_LINE,
   CSV_HEADER_TEXT,
   escapeCsvField,
+  findOldTrackingCompany,
   findPriorCompanyCaptures,
   normalizeCompanyForMatch,
   parseCsvRows,
+  parseOldTrackingCompanies,
   recordToCsvValues,
   serializeCsvRow,
   serializeRecordCsvRow,
@@ -96,6 +98,15 @@ function runCsvTests() {
   const uberSummary = findPriorCompanyCaptures(uberCsvText, 'Uber');
   assert(uberSummary.count === 1, `Expected Uber to match Uber Technologies, got ${uberSummary.count}.`);
   assert(priorSummary.mostRecentDate === '2026-07-05', `Expected most recent date, got ${priorSummary.mostRecentDate}.`);
+
+  const oldTrackingText = '\uFEFFOpenAI\r\nSNAP\r\nNordstrom \r\nUber Technologies, Inc.\r\n\r\n';
+  const oldTrackingCompanies = parseOldTrackingCompanies(oldTrackingText);
+  assert(oldTrackingCompanies.length === 4, `Expected four old-tracking companies, got ${oldTrackingCompanies.length}.`);
+  assert(oldTrackingCompanies[2] === 'Nordstrom', 'Expected old-tracking parser to trim whitespace.');
+  const oldTrackingSummary = findOldTrackingCompany(oldTrackingText, 'Uber');
+  assert(oldTrackingSummary.count === 1, `Expected Uber to match old-tracking company, got ${oldTrackingSummary.count}.`);
+  assert(findOldTrackingCompany(oldTrackingText, 'Snap').count === 1, 'Expected old-tracking matching to be case-insensitive.');
+  assert(findOldTrackingCompany(oldTrackingText, 'Unknown').count === 0, 'Expected unknown old-tracking company not to match.');
 }
 
 function runFilenameTests() {

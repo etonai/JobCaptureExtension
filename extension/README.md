@@ -20,7 +20,7 @@ Implemented in the current shell:
 - `job-tracking.csv` creation/header validation/append
 - unsupported-page, save-success, save-error, and partial-success states
 - user-entered notes saved to JSON and the CSV `notes` column
-- prior company warning after capture when the company already appears in `job-tracking.csv`
+- prior company warning after capture when the company already appears in `old-tracking.txt` or `job-tracking.csv`
 
 It does not implement the final editable review UI. The Save action writes the current captured parser result; DevCycle006 will add richer field editing before save.
 
@@ -89,13 +89,14 @@ edge://extensions/shortcuts
 ```text
 Job Search Project/
   job-tracking.csv
+  old-tracking.txt
   saved-listings/
     starbucks_2026-07-05_software-engineer-sr_123456789.json
     starbucks_2026-07-05_software-engineer-sr_123456789.txt
     starbucks_2026-07-05_software-engineer-sr_123456789.md
 ```
 
-The CSV uses the locked first-version schema from `doc/planning/ExtensionDesign.md`. User-entered popup notes are saved into the existing `notes` column. After capture, the extension also checks existing CSV rows and warns when the captured company has appeared before. Existing CSV files with mismatched headers block CSV append, but the JSON listing, description text file, and description Markdown file remain saved when possible.
+The CSV uses the locked first-version schema from `doc/planning/ExtensionDesign.md`. User-entered popup notes are saved into the existing `notes` column. Optional `old-tracking.txt` can contain one company per non-empty line for companies applied to before this extension. After capture, the extension checks `old-tracking.txt` first, then existing CSV rows, and warns when the captured company has appeared before. Existing CSV files with mismatched headers block CSV append, but the JSON listing, description text file, and description Markdown file remain saved when possible.
 
 ## Local Checks
 
@@ -117,3 +118,4 @@ node extension/tests/persistence.test.mjs
 ## Notes
 
 The user should manually expand collapsed LinkedIn job descriptions before capture. The extension does not click LinkedIn expansion controls in the MVP.
+

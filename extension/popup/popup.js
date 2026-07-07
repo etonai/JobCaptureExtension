@@ -1,5 +1,5 @@
 import { captureActivePage } from '../content/captureActivePage.js';
-import { findPriorCompanyCaptures } from '../shared/csv.js';
+import { findOldTrackingCompany, findPriorCompanyCaptures } from '../shared/csv.js';
 import { ensureProjectPermission, getProjectFolderStatus, getStoredProjectFolder } from '../shared/projectFolderStore.js';
 import { saveCaptureRecord } from '../shared/saveListing.js';
 
@@ -43,9 +43,39 @@ function displayValue(value) {
 
 
 function priorCompanyWarningMessage(record, summary) {
+  if (summary.source === 'old-tracking') {
+    return `You have 1 prior entry for ${record.company} in old-tracking.txt`;
+  }
+
   const entryText = summary.count === 1 ? '1 prior CSV entry' : `${summary.count} prior CSV entries`;
   const dateText = summary.mostRecentDate ? ` Most recent: ${summary.mostRecentDate}.` : '';
   return `You have ${entryText} for ${record.company}.${dateText}`;
+}
+
+async function readProjectTextFile(projectHandle, filename) {
+  const fileHandle = await projectHandle.getFileHandle(filename, { create: false });
+  const file = await fileHandle.getFile();
+  return file.text();
+}
+
+async function findOldTrackingWarning(projectHandle, record) {
+  try {
+    const text = await readProjectTextFile(projectHandle, 'old-tracking.txt');
+    const summary = findOldTrackingCompany(text, record.company);
+    return summary.count > 0 ? { ...summary, source: 'old-tracking' } : null;
+  } catch (error) {
+    return null;
+  }
+}
+
+async function findCsvPriorCompanyWarning(projectHandle, record) {
+  try {
+    const text = await readProjectTextFile(projectHandle, 'job-tracking.csv');
+    const summary = findPriorCompanyCaptures(text, record.company);
+    return summary.count > 0 ? { ...summary, source: 'csv' } : null;
+  } catch (error) {
+    return null;
+  }
 }
 
 async function findPriorCompanyWarning(record) {
@@ -61,14 +91,13 @@ async function findPriorCompanyWarning(record) {
 
     await ensureProjectPermission(projectHandle);
 
-    const csvHandle = await projectHandle.getFileHandle('job-tracking.csv', { create: false });
-    const csvFile = await csvHandle.getFile();
-    const summary = findPriorCompanyCaptures(await csvFile.text(), record.company);
-    return summary.count > 0 ? summary : null;
-  } catch (error) {
-    if (error?.name === 'NotFoundError') {
-      return null;
+    const oldTrackingWarning = await findOldTrackingWarning(projectHandle, record);
+    if (oldTrackingWarning) {
+      return oldTrackingWarning;
     }
+
+    return findCsvPriorCompanyWarning(projectHandle, record);
+  } catch (error) {
     return null;
   }
 }
