@@ -171,6 +171,21 @@ export function captureActivePage() {
     return firstPart;
   }
 
+  function selectedJobDetailLines(headerLines, firstMetaIndex) {
+    if (firstMetaIndex < 0) {
+      return [];
+    }
+
+    const detailLines = [];
+    for (const line of headerLines.slice(firstMetaIndex + 1)) {
+      detailLines.push(line);
+      if (/^(Apply|Easy Apply)$/i.test(line)) {
+        break;
+      }
+    }
+    return detailLines;
+  }
+
   function parseHeaderFields(lines, record, pageTitle) {
     const usable = lines.filter((line) => !isUiNoise(line));
     const aboutIndex = usable.findIndex((line) => /^About the job$/i.test(line));
@@ -198,10 +213,10 @@ export function captureActivePage() {
       record.title = findTitleFromDocumentTitle(pageTitle);
     }
 
-    const applyScanLines = firstMetaIndex >= 0 ? headerLines.slice(firstMetaIndex + 1) : headerLines;
+    const detailLines = selectedJobDetailLines(headerLines, firstMetaIndex);
+    const applyScanLines = firstMetaIndex >= 0 ? detailLines : headerLines;
 
-    for (let i = 0; i < headerLines.length; i += 1) {
-      const line = headerLines[i];
+    for (const line of detailLines) {
       if (!record.salaryText && isSalaryLine(line)) {
         record.salaryText = line;
       }
@@ -212,6 +227,12 @@ export function captureActivePage() {
         record.employmentType = normalizeEmploymentType(line);
       }
 
+      if (/promoted|actively reviewing|responses managed|managed off linkedin/i.test(line)) {
+        classifyStatusLine(line, record);
+      }
+    }
+
+    for (const line of headerLines) {
       if (/promoted|actively reviewing|responses managed|managed off linkedin/i.test(line)) {
         classifyStatusLine(line, record);
       }
@@ -521,3 +542,4 @@ export function captureActivePage() {
     signals: parsed.signals
   };
 }
+

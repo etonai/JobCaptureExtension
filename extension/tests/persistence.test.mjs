@@ -79,6 +79,8 @@ function runCsvTests() {
   const record = sampleRecord();
   const values = recordToCsvValues(record);
   assert(values.length === 15, 'Expected 15 CSV values.');
+  const noSalaryValues = recordToCsvValues(sampleRecord({ salaryText: '' }));
+  assert(noSalaryValues[9] === '', 'Expected blank salaryText to serialize as a blank salary column.');
   assert(!values.includes(record.description), 'Expected description to be excluded from CSV.');
   const recordRow = serializeRecordCsvRow(record);
   assert(recordRow.includes('"Starbucks, Inc."'), 'Expected company comma to be quoted.');

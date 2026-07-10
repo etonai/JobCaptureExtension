@@ -38,7 +38,7 @@ The HTML snapshots include large hydrated application markup and generated class
 
 - LinkedIn DOM and visible text ordering can change.
 - The parser does not click expansion controls or navigate job panes.
-- Salary, posted age, and applicant count are captured as visible text only.
+- Salary, posted age, and applicant count are captured as visible text only. Salary capture is conservative and only accepts salary-like text from the selected job detail lines after the job metadata line.
 - `additionalSections` is defined in the record shape but is not populated yet.
 - Benefits are captured only when a recognizable benefits heading has visible content.
 - The popup shows a summary for verification, not the final editable review UI.

@@ -128,9 +128,9 @@ function runEasyPostFixtureTest() {
   assert(record.promotionText === 'Promoted by hirer', `Expected promotion text, got ${record.promotionText}.`);
   assert(record.hiringStatusText === 'Actively reviewing applicants', `Expected hiring status, got ${record.hiringStatusText}.`);
   assert(record.salaryText === '$130K/yr - $170K/yr', `Expected salary, got ${record.salaryText}.`);
-  assert(record.workplaceType === 'Remote', `Expected Remote workplace, got ${record.workplaceType}.`);
-  assert(record.employmentType === 'Full-time', `Expected Full-time employment, got ${record.employmentType}.`);
-  assert(record.applyType === 'Easy Apply', `Expected Easy Apply, got ${record.applyType}.`);
+  assert(record.workplaceType === 'Remote', 'Expected Remote workplace.');
+  assert(record.employmentType === 'Full-time', 'Expected Full-time employment.');
+  assert(record.applyType === 'Easy Apply', 'Expected Easy Apply.');
   assert(record.description.includes('Position Summary'), 'Expected description to include Position Summary.');
   assert(record.posterRequirements.includes("Bachelor's Degree"), 'Expected poster requirements.');
   assert(record.benefits === '', 'Expected empty benefits for EasyPost fixture.');
@@ -161,12 +161,44 @@ function runStarbucksFixtureTest() {
   assert(record.hiringStatusText === 'Responses managed off LinkedIn', `Expected hiring status, got ${record.hiringStatusText}.`);
   assert(record.salaryText === '$127K/yr - $211K/yr', `Expected salary, got ${record.salaryText}.`);
   assert(record.workplaceType === 'On-site', `Expected On-site workplace, got ${record.workplaceType}.`);
-  assert(record.employmentType === 'Full-time', `Expected Full-time employment, got ${record.employmentType}.`);
+  assert(record.employmentType === 'Full-time', 'Expected Full-time employment.');
   assert(record.applyType === 'External Apply', `Expected External Apply, got ${record.applyType}.`);
   assert(record.description.includes('Now Brewing'), 'Expected Starbucks description.');
 }
 
 
+
+function runSalaryAbsentDoesNotUseUnrelatedHeaderSalaryTest() {
+  setMockPage({
+    href: 'https://www.linkedin.com/jobs/view/999888777',
+    hostname: 'www.linkedin.com',
+    pathname: '/jobs/view/999888777',
+    title: 'Principal Engineer | NoSalary Co | LinkedIn',
+    bodyText: [
+      'Recommended job',
+      '$180K/yr - $240K/yr',
+      'NoSalary Co',
+      'Principal Engineer',
+      'United States | 2 days ago | 15 applicants',
+      'Remote',
+      'Full-time',
+      'Easy Apply',
+      'About the job',
+      'Build reliable systems without a posted salary range.'
+    ].join('\n'),
+    headings: ['Principal Engineer']
+  });
+
+  const result = captureActivePage();
+  const record = result.record;
+  assert(result.ok === true, 'Expected no-salary fixture to be supported.');
+  assert(record.company === 'NoSalary Co', 'Expected NoSalary Co company.');
+  assert(record.title === 'Principal Engineer', 'Expected Principal Engineer title.');
+  assert(record.salaryText === '', 'Expected blank salary when selected job has no salary.');
+  assert(record.workplaceType === 'Remote', 'Expected Remote workplace.');
+  assert(record.employmentType === 'Full-time', 'Expected Full-time employment.');
+  assert(record.applyType === 'Easy Apply', 'Expected Easy Apply.');
+}
 
 function runMarkdownDescriptionDomTest() {
   const { heading } = linkedInAboutJobDom([
@@ -234,8 +266,10 @@ function runUnsupportedPageTest() {
 
 runEasyPostFixtureTest();
 runStarbucksFixtureTest();
+runSalaryAbsentDoesNotUseUnrelatedHeaderSalaryTest();
 runMarkdownDescriptionDomTest();
 runUnsupportedPageTest();
 runHtmlFixtureReferenceChecks();
 
 console.log('capture parser fixture tests passed');
+
