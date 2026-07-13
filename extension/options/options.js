@@ -6,6 +6,7 @@ import {
   isFileSystemAccessAvailable,
   queryProjectPermission
 } from '../shared/projectFolderStore.js';
+import { clearPriorCompanyCache, refreshPriorCompanyCache } from '../shared/priorCompanyCache.js';
 import { initializeProjectStructure } from '../shared/saveListing.js';
 
 const elements = {
@@ -70,17 +71,20 @@ async function chooseFolder() {
   await chooseProjectFolder();
   const handle = await getStoredProjectFolder();
   await initializeProjectStructure(handle);
+  await refreshPriorCompanyCache(handle);
 }
 
 async function validateStructure() {
   const handle = await getStoredProjectFolder();
   await initializeProjectStructure(handle);
+  await refreshPriorCompanyCache(handle);
   const permission = await queryProjectPermission(handle);
   log('Project structure is ready.', `Permission: ${permission}`);
 }
 
 async function forgetFolder() {
   await forgetProjectFolder();
+  await clearPriorCompanyCache();
 }
 
 elements.chooseFolderButton.addEventListener('click', () => runAction('choose project folder', chooseFolder));

@@ -104,6 +104,30 @@ export async function queryProjectPermission(handle) {
   return await handle.queryPermission({ mode: 'readwrite' });
 }
 
+export async function ensureProjectReadPermission(handle) {
+  if (!handle) {
+    throw new Error('Project folder is not configured. Open Options and choose a project folder.');
+  }
+
+  if (typeof handle.queryPermission !== 'function') {
+    return 'unsupported';
+  }
+
+  const current = await handle.queryPermission({ mode: 'read' });
+  if (current === 'granted') {
+    return 'granted';
+  }
+  if (typeof handle.requestPermission !== 'function') {
+    throw new Error(`Project folder read permission is ${current}. Reconnect the folder from Options.`);
+  }
+
+  const requested = await handle.requestPermission({ mode: 'read' });
+  if (requested !== 'granted') {
+    throw new Error(`Project folder read permission was not granted. Current permission: ${requested}`);
+  }
+  return requested;
+}
+
 export async function ensureProjectPermission(handle) {
   if (!handle) {
     throw new Error('Project folder is not configured. Open Options and choose a project folder.');

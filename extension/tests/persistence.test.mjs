@@ -23,6 +23,8 @@ import {
   savedListingPath,
   slugify
 } from '../shared/filename.js';
+import { findPriorCompanyInCache } from '../shared/priorCompanyCache.js';
+import { ensureProjectReadPermission } from '../shared/projectFolderStore.js';
 import { reserveListingFilename, saveCaptureRecord } from '../shared/saveListing.js';
 
 function assert(condition, message) {
@@ -286,9 +288,47 @@ async function runReservationTests() {
   assert(filename === filenameWithCollisionSuffix(base, 3), `Expected third filename candidate, got ${filename}`);
 }
 
+function runPriorCompanyCacheTests() {
+  const cache = {
+    oldTrackingText: 'OpenAI\nStarbucks\n',
+    csvText: `${CSV_HEADER_TEXT}${serializeRecordCsvRow(sampleRecord({ company: 'EasyPost', captureDateLocal: '2026-07-08' }))}`,
+    refreshedAt: '2026-07-13T12:00:00.000Z'
+  };
+
+  const oldTrackingWarning = findPriorCompanyInCache(cache, sampleRecord({ company: 'Starbucks, Inc.' }));
+  assert(oldTrackingWarning?.source === 'old-tracking', 'Expected cached old-tracking match to be preferred.');
+  assert(oldTrackingWarning.count === 1, 'Expected cached old-tracking match count.');
+
+  const csvWarning = findPriorCompanyInCache(cache, sampleRecord({ company: 'EasyPost' }));
+  assert(csvWarning?.source === 'csv', 'Expected cached CSV match.');
+  assert(csvWarning.mostRecentDate === '2026-07-08', 'Expected cached CSV most recent date.');
+
+  const missingWarning = findPriorCompanyInCache(cache, sampleRecord({ company: 'Unknown Company' }));
+  assert(missingWarning === null, 'Expected no cached warning for unknown company.');
+}
+async function runProjectPermissionTests() {
+  const modes = [];
+  const promptHandle = {
+    async queryPermission(options) {
+      modes.push(`query:${options.mode}`);
+      return 'prompt';
+    },
+    async requestPermission(options) {
+      modes.push(`request:${options.mode}`);
+      return 'granted';
+    }
+  };
+
+  const result = await ensureProjectReadPermission(promptHandle);
+  assert(result === 'granted', `Expected read permission to be granted, got ${result}.`);
+  assert(modes.join('|') === 'query:read|request:read', `Expected read-only permission flow, got ${modes.join('|')}.`);
+}
+
 runCsvTests();
 runFilenameTests();
+runPriorCompanyCacheTests();
 await runReservationTests();
+await runProjectPermissionTests();
 await runSaveCaptureRecordTest();
 
 console.log('persistence helper tests passed');

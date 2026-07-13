@@ -45,6 +45,7 @@ extension/
     csv.js
     filename.js
     projectFolderStore.js
+    priorCompanyCache.js
     saveListing.js
   tests/
     captureActivePage.smoke.test.mjs
@@ -52,7 +53,7 @@ extension/
   PARSER_NOTES.md
 ```
 
-`background/background.js` owns shortcut command handling. `popup/popup.js` owns popup state, active-tab injection, auto-capture intent consumption, and minimal Save orchestration. Shared modules own CSV serialization, filename generation, project folder handle storage, and JSON/TXT/MD/CSV writes.
+`background/background.js` owns shortcut command handling and shortcut-initiated capture/check completion before notifying the popup. `popup/popup.js` owns popup state, manual active-tab injection, shortcut result consumption, and minimal Save orchestration. Shared modules own CSV serialization, filename generation, project folder handle storage, and JSON/TXT/MD/CSV writes.
 
 ## Tooling Decision
 
@@ -96,7 +97,7 @@ Job Search Project/
     starbucks_2026-07-05_software-engineer-sr_123456789.md
 ```
 
-The CSV uses the locked first-version schema from `doc/planning/ExtensionDesign.md`. User-entered popup notes are saved into the existing `notes` column. Optional `old-tracking.txt` can contain one company per non-empty line for companies applied to before this extension. After capture, the extension checks `old-tracking.txt` first, then existing CSV rows, and warns when the captured company has appeared before. Existing CSV files with mismatched headers block CSV append, but the JSON listing, description text file, and description Markdown file remain saved when possible.
+The CSV uses the locked first-version schema from `doc/planning/ExtensionDesign.md`. User-entered popup notes are saved into the existing `notes` column. Optional `old-tracking.txt` can contain one company per non-empty line for companies applied to before this extension. After capture, the extension checks `old-tracking.txt` first, then existing CSV rows, and warns when the captured company has appeared before. Options validation refreshes a local prior-company cache so shortcut captures can show this warning even when the browser will not allow a filesystem permission prompt from the shortcut-opened popup. Existing CSV files with mismatched headers block CSV append, but the JSON listing, description text file, and description Markdown file remain saved when possible.
 
 ## Local Checks
 
@@ -110,6 +111,7 @@ node --check extension/options/options.js
 node --check extension/shared/csv.js
 node --check extension/shared/filename.js
 node --check extension/shared/projectFolderStore.js
+node --check extension/shared/priorCompanyCache.js
 node --check extension/shared/saveListing.js
 node extension/tests/captureActivePage.smoke.test.mjs
 node extension/tests/persistence.test.mjs
