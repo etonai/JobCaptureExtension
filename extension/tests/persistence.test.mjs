@@ -25,7 +25,12 @@ import {
 } from '../shared/filename.js';
 import { findPriorCompanyInCache } from '../shared/priorCompanyCache.js';
 import { ensureProjectReadPermission } from '../shared/projectFolderStore.js';
-import { reserveListingFilename, saveCaptureRecord } from '../shared/saveListing.js';
+import {
+  appendCaptureRecordToCsv,
+  OTHER_LISTINGS_CSV_FILENAME,
+  reserveListingFilename,
+  saveCaptureRecord
+} from '../shared/saveListing.js';
 
 function assert(condition, message) {
   if (!condition) {
@@ -187,26 +192,27 @@ function fakeWritableFile(initialText = '') {
 }
 
 function fakeProjectHandle() {
-  const files = new Map();
+  const rootFiles = new Map();
+  const savedListingFiles = new Map();
   const savedListings = {
     name: 'saved-listings',
-    files,
+    files: savedListingFiles,
     async getFileHandle(name, options = {}) {
-      if (!files.has(name)) {
+      if (!savedListingFiles.has(name)) {
         if (!options.create) {
           const error = new Error('Not found');
           error.name = 'NotFoundError';
           throw error;
         }
-        files.set(name, fakeWritableFile());
+        savedListingFiles.set(name, fakeWritableFile());
       }
-      return files.get(name).handle;
+      return savedListingFiles.get(name).handle;
     }
   };
 
   return {
     savedListings,
-    rootFiles: files,
+    rootFiles,
     async queryPermission() {
       return 'granted';
     },
@@ -220,21 +226,20 @@ function fakeProjectHandle() {
       throw new Error(`Unexpected directory: ${name}`);
     },
     async getFileHandle(name, options = {}) {
-      if (!files.has(name)) {
+      if (!rootFiles.has(name)) {
         if (!options.create) {
           const error = new Error('Not found');
           error.name = 'NotFoundError';
           throw error;
         }
-        files.set(name, fakeWritableFile());
+        rootFiles.set(name, fakeWritableFile());
       }
-      return files.get(name).handle;
+      return rootFiles.get(name).handle;
     }
   };
 }
 
-async function runSaveCaptureRecordTest() {
-  const projectHandle = fakeProjectHandle();
+function setStoredProjectHandle(projectHandle) {
   globalThis.indexedDB = {
     open() {
       const request = {};
@@ -264,6 +269,11 @@ async function runSaveCaptureRecordTest() {
       return request;
     }
   };
+}
+
+async function runSaveCaptureRecordTest() {
+  const projectHandle = fakeProjectHandle();
+  setStoredProjectHandle(projectHandle);
 
   const result = await saveCaptureRecord(sampleRecord());
   const jsonName = 'starbucks-inc_2026-07-05_software-engineer-sr_123456789.json';
@@ -280,6 +290,24 @@ async function runSaveCaptureRecordTest() {
   const csvText = await projectHandle.rootFiles.get('job-tracking.csv').text();
   assert(csvText.includes('Starbucks, Inc.'), 'Expected CSV file to include saved record row.');
   assert(csvText.includes('"First line, with comma\nSecond ""quoted"" line"'), 'Expected CSV file to quote and escape notes.');
+}
+
+async function runAppendCaptureRecordToCsvTest() {
+  const projectHandle = fakeProjectHandle();
+  setStoredProjectHandle(projectHandle);
+
+  const result = await appendCaptureRecordToCsv(sampleRecord({ savedListingPath: '' }), OTHER_LISTINGS_CSV_FILENAME);
+
+  assert(result.ok === true, 'Expected CSV-only record append to succeed.');
+  assert(result.csvFile === OTHER_LISTINGS_CSV_FILENAME, `Expected ${OTHER_LISTINGS_CSV_FILENAME}, got ${result.csvFile}.`);
+  assert(result.csvAppended === true, 'Expected CSV-only record append result to indicate append success.');
+  assert(projectHandle.rootFiles.has(OTHER_LISTINGS_CSV_FILENAME), 'Expected other-listings.csv to be written at the project root.');
+  assert(!projectHandle.rootFiles.has('job-tracking.csv'), 'Expected CSV-only append not to write job-tracking.csv.');
+  assert(projectHandle.savedListings.files.size === 0, 'Expected CSV-only append not to write saved listing files.');
+
+  const csvText = await projectHandle.rootFiles.get(OTHER_LISTINGS_CSV_FILENAME).text();
+  assert(csvText.startsWith(CSV_HEADER_TEXT), 'Expected other-listings.csv to start with the standard CSV header.');
+  assert(csvText.includes('Starbucks, Inc.'), 'Expected other-listings.csv to include the captured record row.');
 }
 async function runReservationTests() {
   const record = sampleRecord();
@@ -330,5 +358,6 @@ runPriorCompanyCacheTests();
 await runReservationTests();
 await runProjectPermissionTests();
 await runSaveCaptureRecordTest();
+await runAppendCaptureRecordToCsvTest();
 
 console.log('persistence helper tests passed');

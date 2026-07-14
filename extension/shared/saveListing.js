@@ -12,6 +12,7 @@ import { ensureProjectPermission, getStoredProjectFolder } from './projectFolder
 
 const SAVED_LISTINGS_FOLDER = 'saved-listings';
 const CSV_FILENAME = 'job-tracking.csv';
+export const OTHER_LISTINGS_CSV_FILENAME = 'other-listings.csv';
 
 export class CsvHeaderMismatchError extends Error {
   constructor(result) {
@@ -78,8 +79,8 @@ export async function reserveListingFilename(savedListingsHandle, record) {
   throw new Error('Could not find an available saved listing filename.');
 }
 
-async function ensureCsvReady(projectHandle) {
-  const csvHandle = await projectHandle.getFileHandle(CSV_FILENAME, { create: true });
+async function ensureCsvReady(projectHandle, csvFilename = CSV_FILENAME) {
+  const csvHandle = await projectHandle.getFileHandle(csvFilename, { create: true });
   const file = await csvHandle.getFile();
   if (file.size === 0) {
     await writeTextFile(csvHandle, CSV_HEADER_TEXT);
@@ -102,6 +103,28 @@ export async function initializeProjectStructure(projectHandle) {
     savedListingsFolder: savedListingsHandle.name,
     csvFile: CSV_FILENAME,
     csvCreated: csvState.created
+  };
+}
+
+export async function appendCaptureRecordToCsv(record, csvFilename = CSV_FILENAME) {
+  const projectHandle = await getStoredProjectFolder();
+  if (!projectHandle) {
+    throw new Error('Project folder is not configured. Open Options and choose a project folder before saving.');
+  }
+
+  await ensureProjectPermission(projectHandle);
+  assertMinimumRecord(record);
+
+  const finalRecord = cloneRecord(record);
+  const csvState = await ensureCsvReady(projectHandle, csvFilename);
+  await appendTextFile(csvState.csvHandle, serializeRecordCsvRow(finalRecord));
+
+  return {
+    ok: true,
+    csvFile: csvFilename,
+    csvCreated: csvState.created,
+    csvAppended: true,
+    record: finalRecord
   };
 }
 
@@ -175,8 +198,7 @@ export async function saveCaptureRecord(record) {
   }
 
   try {
-    const csvState = await ensureCsvReady(projectHandle);
-    await appendTextFile(csvState.csvHandle, serializeRecordCsvRow(finalRecord));
+    const result = await appendCaptureRecordToCsv(finalRecord, CSV_FILENAME);
     return {
       ok: true,
       partial: false,
@@ -185,9 +207,9 @@ export async function saveCaptureRecord(record) {
       savedDescriptionMarkdownPath: savedDescriptionMarkdownPath(filename),
       descriptionTextSaved: true,
       descriptionMarkdownSaved: true,
-      csvAppended: true,
-      csvCreated: csvState.created,
-      record: finalRecord
+      csvAppended: result.csvAppended,
+      csvCreated: result.csvCreated,
+      record: result.record
     };
   } catch (error) {
     return {

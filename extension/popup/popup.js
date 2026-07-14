@@ -1,7 +1,7 @@
 import { captureActivePage } from '../content/captureActivePage.js';
 import { ensureProjectReadPermission, getProjectFolderStatus, getStoredProjectFolder } from '../shared/projectFolderStore.js';
 import { findCachedPriorCompanyWarning, findPriorCompanyInCache, refreshPriorCompanyCache } from '../shared/priorCompanyCache.js';
-import { saveCaptureRecord } from '../shared/saveListing.js';
+import { appendCaptureRecordToCsv, OTHER_LISTINGS_CSV_FILENAME, saveCaptureRecord } from '../shared/saveListing.js';
 
 const AUTO_CAPTURE_INTENT_KEY = 'popupIntent';
 const AUTO_CAPTURE_INTENT_TTL_MS = 10_000;
@@ -12,6 +12,7 @@ const AUTO_CAPTURE_POLL_MS = 100;
 const elements = {
   captureButton: document.querySelector('#captureButton'),
   saveButton: document.querySelector('#saveButton'),
+  recordListingButton: document.querySelector('#recordListingButton'),
   notesInput: document.querySelector('#notesInput'),
   optionsButton: document.querySelector('#optionsButton'),
   statusPanel: document.querySelector('#statusPanel'),
@@ -74,10 +75,12 @@ async function findPriorCompanyWarning(record) {
     return findCachedPriorCompanyWarning(record);
   }
 }
-function updateSaveButton() {
+function updateSaveButtons() {
   const canSave = Boolean(lastCaptureRecord);
-  elements.saveButton.classList.toggle('hidden', !canSave);
-  elements.saveButton.disabled = !canSave;
+  for (const button of [elements.saveButton, elements.recordListingButton]) {
+    button.classList.toggle('hidden', !canSave);
+    button.disabled = !canSave;
+  }
 }
 
 function setResult(result) {
@@ -104,7 +107,7 @@ function setResult(result) {
 
 function clearResult() {
   lastCaptureRecord = null;
-  updateSaveButton();
+  updateSaveButtons();
   elements.resultPanel.classList.add('hidden');
   elements.notesInput.value = '';
   for (const key of [
@@ -143,7 +146,7 @@ function applyCaptureResult(capture) {
   if (result.ok) {
     lastCaptureRecord = result.record;
     elements.notesInput.value = lastCaptureRecord.notes || '';
-    updateSaveButton();
+    updateSaveButtons();
 
     if (capture.priorCompany) {
       setStatus('warning', 'Previously captured company', priorCompanyWarningMessage(lastCaptureRecord, capture.priorCompany));
@@ -197,6 +200,7 @@ async function runSave() {
 
   lastCaptureRecord.notes = elements.notesInput.value;
   elements.saveButton.disabled = true;
+  elements.recordListingButton.disabled = true;
   elements.captureButton.disabled = true;
   setStatus('capturing', 'Saving', 'Writing JSON listing and CSV tracking row.');
 
@@ -217,7 +221,35 @@ async function runSave() {
     setStatus('error', 'Save Failed', `${message}${suffix}`);
   } finally {
     elements.captureButton.disabled = false;
-    elements.saveButton.disabled = false;
+    updateSaveButtons();
+  }
+}
+
+async function runRecordListing() {
+  if (!lastCaptureRecord) {
+    setStatus('error', 'Nothing To Record', 'Capture a supported LinkedIn job before recording a listing.');
+    return;
+  }
+
+  lastCaptureRecord.notes = elements.notesInput.value;
+  elements.saveButton.disabled = true;
+  elements.recordListingButton.disabled = true;
+  elements.captureButton.disabled = true;
+  setStatus('capturing', 'Recording Listing', `Writing CSV row to ${OTHER_LISTINGS_CSV_FILENAME}.`);
+
+  try {
+    const result = await appendCaptureRecordToCsv(lastCaptureRecord, OTHER_LISTINGS_CSV_FILENAME);
+    lastCaptureRecord = result.record;
+    elements.notesInput.value = lastCaptureRecord.notes || '';
+    setResult({ ok: true, record: lastCaptureRecord, warnings: [] });
+    setStatus('captured', 'Listing Recorded', `CSV row appended to ${result.csvFile}.`);
+  } catch (error) {
+    const message = error.message || String(error);
+    const suffix = /project folder/i.test(message) ? ' Open Options to choose or reconnect the project folder.' : '';
+    setStatus('error', 'Record Failed', `${message}${suffix}`);
+  } finally {
+    elements.captureButton.disabled = false;
+    updateSaveButtons();
   }
 }
 
@@ -302,6 +334,7 @@ async function consumeAutoCaptureIntent() {
 
 elements.captureButton.addEventListener('click', runCapture);
 elements.saveButton.addEventListener('click', runSave);
+elements.recordListingButton.addEventListener('click', runRecordListing);
 elements.optionsButton.addEventListener('click', openOptions);
 chrome.runtime.onMessage.addListener((message) => {
   if (message?.type === AUTO_CAPTURE_READY_MESSAGE) {
@@ -310,7 +343,7 @@ chrome.runtime.onMessage.addListener((message) => {
     });
   }
 });
-updateSaveButton();
+updateSaveButtons();
 consumeAutoCaptureIntent().catch((error) => {
   setStatus('error', 'Shortcut Failed', error.message || String(error));
 });
