@@ -70,7 +70,7 @@ function linkedInAboutJobDom(children) {
   const container = elementNode('div', { componentkey: 'JobDetails_AboutTheJob_123' }, [heading, description]);
   return { heading, container };
 }
-function setMockPage({ href, hostname, pathname, title, bodyText, headings = [], domHeadings = [], recentNodes = [] }) {
+function setMockPage({ href, hostname, pathname, title, bodyText, headings = [], domHeadings = [], paragraphNodes = [] }) {
   globalThis.window = {
     location: { href, hostname, pathname }
   };
@@ -84,12 +84,51 @@ function setMockPage({ href, hostname, pathname, title, bodyText, headings = [],
       if (selector === 'h1, h2') {
         return headings.map((text) => ({ innerText: text, textContent: text }));
       }
-      if (/job-card|jobs-search-results|data-job-id|jobs\/view/.test(selector)) {
-        return recentNodes;
+      if (selector === 'p') {
+        return paragraphNodes;
       }
       return [];
     }
   };
+}
+
+// Faithful mocks of the real LinkedIn results-list card DOM, verified against
+// doc/examples/Starbucksmoreunselectedbare.html: a card's title is a <p> with
+// two spans of identical text; its company and location are plain single-text
+// <p>s; its age is a <p> with two spans of DIFFERENT text ("Posted N ago" /
+// "N ago"). In document order the <p>s run title, company, location, ..., age.
+function spanNode(text) {
+  return { nodeType: 1, tagName: 'SPAN', childNodes: [{ nodeType: 3, textContent: text }], innerText: text, textContent: text };
+}
+
+function echoParagraph(visibleText, hiddenText) {
+  const children = [spanNode(visibleText), spanNode(hiddenText)];
+  const joined = `${visibleText} ${hiddenText}`;
+  return { nodeType: 1, tagName: 'P', childNodes: children, innerText: joined, textContent: joined };
+}
+
+function titleParagraph(text) {
+  return echoParagraph(text, text);
+}
+
+function textParagraph(text) {
+  return { nodeType: 1, tagName: 'P', childNodes: [{ nodeType: 3, textContent: text }], innerText: text, textContent: text };
+}
+
+// visibleAge like 'Posted 24 minutes ago'; the accessibility echo span carries
+// the bare 'N ago'. If no explicit bare form is given, derive it.
+function ageParagraph(visibleAge) {
+  const bare = visibleAge.replace(/^(?:Posted|Reposted)\s+/i, '');
+  return echoParagraph(visibleAge, bare);
+}
+
+// Builds the <p> sequence for one card in document order.
+function listCardParagraphs({ title, company, location, age }) {
+  const nodes = [titleParagraph(title)];
+  if (company !== undefined) nodes.push(textParagraph(company));
+  if (location !== undefined) nodes.push(textParagraph(location));
+  if (age !== undefined) nodes.push(ageParagraph(age));
+  return nodes;
 }
 
 function assert(condition, message) {
@@ -242,140 +281,69 @@ function runMarkdownDescriptionDomTest() {
   assert(markdown.includes('[our careers page](https://example.com/jobs)'), `Expected Markdown link, got ${markdown}.`);
 }
 
-// Mock card shapes mirror the two verified LinkedIn identity signals found in
-// the saved fixtures under doc/examples/: an accessible `aria-label="Company,
-// X."` node (seen on the open job's identity block), and an `a[href*=
-// "/company/<slug>/"]` profile link (seen on card logos/names). Cards with
-// neither signal must be omitted rather than guessed from surrounding text.
-function companyLabelNode(name) {
-  return {
-    getAttribute(attrName) {
-      return attrName === 'aria-label' ? `Company, ${name}.` : '';
-    }
-  };
-}
+function runRecentPostingsListCardStructureTest() {
+  // Each card is built from the verified real structure: a title <p> (echo
+  // spans), then a plain company <p>, then a location <p>, then an age <p>.
+  // The company is read positionally as the <p> right after the title.
+  const paragraphNodes = [
+    ...listCardParagraphs({ title: 'Sr Software Engineer', company: 'Compass', location: 'Seattle, WA', age: 'Posted 24 minutes ago' }),
+    ...listCardParagraphs({ title: 'Software Developer I', company: 'Redfin', location: 'Seattle, WA', age: '1 hour ago' }),
+    ...listCardParagraphs({ title: 'Senior Software Engineer', company: 'Armada', location: 'Seattle, WA (On-site)', age: 'Reposted 2 hours ago' }),
+    // Age too old -> excluded entirely.
+    ...listCardParagraphs({ title: 'Staff Engineer', company: 'OldCo', location: 'Remote', age: 'Posted 3 hours ago' }),
+    // A card that shows an insight instead of an age -> not a recent posting.
+    ...listCardParagraphs({ title: 'Data Engineer', company: 'NoAgeCo', location: 'Austin, TX', age: undefined }),
+    // A card where LinkedIn omitted the company <p>: the <p> after the title
+    // is the location. Company must be left blank, never mislabeled, but the
+    // qualifying-age listing must still appear.
+    ...listCardParagraphs({ title: 'Platform Engineer', company: undefined, location: 'Denver, CO', age: 'Posted 42 minutes ago' })
+  ];
 
-function companyLinkNode(name) {
-  return {
-    getAttribute() {
-      return '';
-    },
-    innerText: name,
-    textContent: name
-  };
-}
-
-function recentCardWithLabel(company, lines) {
-  const labelNode = companyLabelNode(company);
-  return {
-    innerText: lines.join('\n'),
-    textContent: lines.join('\n'),
-    querySelector(selector) {
-      return selector === '[aria-label^="Company,"]' ? labelNode : null;
-    },
-    querySelectorAll() {
-      return [];
-    }
-  };
-}
-
-function recentCardWithCompanyLink(company, lines) {
-  const linkNode = companyLinkNode(company);
-  return {
-    innerText: lines.join('\n'),
-    textContent: lines.join('\n'),
-    querySelector(selector) {
-      return selector === 'a[href*="/company/"]' ? linkNode : null;
-    },
-    querySelectorAll(selector) {
-      return selector === 'a[href*="/company/"]' ? [linkNode] : [];
-    }
-  };
-}
-
-function recentCardWithAmbiguousCompanyLinks(names, lines) {
-  const linkNodes = names.map(companyLinkNode);
-  return {
-    innerText: lines.join('\n'),
-    textContent: lines.join('\n'),
-    querySelector(selector) {
-      return selector === 'a[href*="/company/"]' ? linkNodes[0] : null;
-    },
-    querySelectorAll(selector) {
-      return selector === 'a[href*="/company/"]' ? linkNodes : [];
-    }
-  };
-}
-
-function recentCardWithNoCompanySignal(lines) {
-  return {
-    innerText: lines.join('\n'),
-    textContent: lines.join('\n'),
-    querySelector() {
-      return null;
-    },
-    querySelectorAll() {
-      return [];
-    }
-  };
-}
-
-function runRecentPostingsSyntheticCardsTest() {
   setMockPage({
-    href: 'https://www.linkedin.com/jobs/search/?keywords=software%20engineer',
+    href: 'https://www.linkedin.com/jobs/search-results/?keywords=software%20engineer',
     hostname: 'www.linkedin.com',
-    pathname: '/jobs/search/',
+    pathname: '/jobs/search-results/',
     title: 'Software Engineer Jobs | LinkedIn',
     bodyText: 'LinkedIn job results',
-    recentNodes: [
-      recentCardWithLabel('FreshCo', ['Backend Engineer', 'FreshCo', 'Remote | 37 minutes ago | 12 applicants']),
-      recentCardWithCompanyLink('HourCo', ['Platform Engineer', 'HourCo', 'Seattle, WA | 1 hour ago | 9 applicants']),
-      recentCardWithLabel('BoundaryCo', ['Systems Engineer', 'BoundaryCo', 'Denver, CO | 2 hours ago | 20 applicants']),
-      recentCardWithLabel('OldCo', ['Staff Engineer', 'OldCo', 'Remote | 3 hours ago | 45 applicants']),
-      recentCardWithLabel('AncientCo', ['Frontend Engineer', 'AncientCo', 'Remote | 1 day ago | 8 applicants']),
-      recentCardWithLabel('RepostCo', ['Core Engineer', 'RepostCo', 'Reposted 1 hour ago']),
-      recentCardWithNoCompanySignal(['Reliability Engineer', 'Saved', 'Remote | 13 minutes ago | 4 applicants']),
-      recentCardWithNoCompanySignal(['Data Platform Engineer', '91 school alumni work here', 'Posted 1 hour ago']),
-      recentCardWithNoCompanySignal(['Cloud Engineer', 'Redmond, WA (Hybrid)', 'Posted 2 hours ago']),
-      recentCardWithNoCompanySignal(['Benefits Engineer', 'Vision, 401(k), +1 benefit', 'Posted 1 hour ago']),
-      recentCardWithNoCompanySignal(['Senior Applied AI Engineer', '48 minutes ago']),
-      recentCardWithAmbiguousCompanyLinks(['SponsorCo', 'PartnerCo'], ['Ambiguous Engineer', '15 minutes ago']),
-      recentCardWithLabel('Microsoft', ['Software Engineer', 'Microsoft', 'Posted 2 hours ago']),
-      recentCardWithLabel('Microsoft', ['Software Engineer', 'Microsoft', '2 hours ago'])
-    ]
+    paragraphNodes
   });
 
   const result = captureRecentJobPostings();
   assert(result.ok === true, 'Expected recent postings scan to be supported on LinkedIn jobs search.');
-  // Every card above has a qualifying age; only the 3-hour and 1-day cards
-  // are excluded by age. A missing/ambiguous company must never drop a
-  // qualifying listing (see the "Redesign Silently Drops Qualifying
-  // Listings" bug recorded in DevCycle013.md) - it only blanks the company
-  // field, so 12 cards in, minus the 2 age-excluded and 1 Microsoft
-  // duplicate collapsed by dedup, leaves 11 listings.
-  assert(result.listings.length === 11, `Expected 11 recent postings, got ${result.listings.length}.`);
-  assert(result.listings.some((listing) => listing.company === 'FreshCo' && listing.postedText === '37 minutes ago' && listing.companySource === 'aria-label'), 'Expected minute-old listing sourced from aria-label.');
-  assert(result.listings.some((listing) => listing.company === 'HourCo' && listing.postedText === '1 hour ago' && listing.companySource === 'company-link'), 'Expected 1-hour listing sourced from a company profile link.');
-  assert(result.listings.some((listing) => listing.company === 'BoundaryCo' && listing.postedText === '2 hours ago'), 'Expected 2-hour boundary listing.');
-  assert(result.listings.some((listing) => listing.company === 'RepostCo' && listing.postedText === 'Reposted 1 hour ago'), 'Expected reposted 1-hour listing.');
-  assert(result.listings.filter((listing) => listing.company === 'Microsoft' && /2 hours ago/.test(listing.postedText)).length === 1, 'Expected equivalent Microsoft age variants to be deduplicated.');
+  assert(result.listings.length === 4, `Expected 4 recent listings (3 with companies + 1 company-omitted), got ${result.listings.length}: ${JSON.stringify(result.listings)}.`);
+  assert(result.listings.some((l) => l.company === 'Compass' && l.postedText === 'Posted 24 minutes ago' && l.companySource === 'list-card'), 'Expected Compass read positionally from the card structure.');
+  assert(result.listings.some((l) => l.company === 'Redfin' && l.postedText === '1 hour ago' && l.companySource === 'list-card'), 'Expected Redfin from the card structure.');
+  assert(result.listings.some((l) => l.company === 'Armada' && l.postedText === 'Reposted 2 hours ago' && l.companySource === 'list-card'), 'Expected Armada at the 2-hour boundary from the card structure.');
+  assert(result.listings.some((l) => l.company === '' && l.postedText === 'Posted 42 minutes ago' && l.companySource === 'missing'), 'Expected the company-omitted card to still appear with a blank company, not the location.');
+  assert(!result.listings.some((l) => l.company === 'Denver, CO'), 'Expected a location never to be used as a company.');
+  assert(!result.listings.some((l) => l.company === 'OldCo'), 'Expected the 3-hour-old card to be excluded by age.');
+  assert(!result.listings.some((l) => l.company === 'NoAgeCo'), 'Expected a card with no posting age to be excluded.');
+}
 
-  const missingCompanyRows = result.listings.filter((listing) => listing.companySource === 'missing');
-  assert(missingCompanyRows.length === 6, `Expected 6 listings with an unresolved company, got ${missingCompanyRows.length}.`);
-  assert(missingCompanyRows.every((listing) => listing.company === ''), 'Expected unresolved-company listings to have a blank company, not a guessed one.');
-  assert(missingCompanyRows.some((listing) => listing.postedText === '13 minutes ago'), 'Expected the 13-minute-old listing with Saved job-state chrome to still be reported, with no company.');
-  assert(missingCompanyRows.filter((listing) => listing.postedText === 'Posted 2 hours ago').length === 1, 'Expected the 2-hour-old listing with only location text nearby to still be reported, with no company.');
-  assert(missingCompanyRows.filter((listing) => listing.postedText === 'Posted 1 hour ago').length === 2, 'Expected the alumni-noise and benefits-noise listings to both still be reported, with no company.');
-  assert(missingCompanyRows.some((listing) => listing.postedText === '48 minutes ago'), 'Expected the title-only listing to still be reported, with no company.');
-  assert(missingCompanyRows.some((listing) => listing.postedText === '15 minutes ago'), 'Expected the ambiguous-company-links listing to still be reported, with no company.');
-  assert(!result.listings.some((listing) => listing.company === 'Saved'), 'Expected job-state chrome such as Saved not to be used as a company.');
-  assert(!result.listings.some((listing) => listing.company === '91 school alumni work here'), 'Expected alumni social proof not to be used as a company.');
-  assert(!result.listings.some((listing) => listing.company === 'Redmond, WA (Hybrid)'), 'Expected location text not to be used as a company.');
-  assert(!result.listings.some((listing) => listing.company === 'Vision, 401(k), +1 benefit'), 'Expected benefits text not to be used as a company.');
-  assert(!result.listings.some((listing) => listing.company === 'Senior Applied AI Engineer'), 'Expected a title-only card with no company signal not to have its title guessed as a company.');
-  assert(!result.listings.some((listing) => listing.company === 'SponsorCo' || listing.company === 'PartnerCo'), 'Expected a card with ambiguous multiple company links not to guess either company.');
-  assert(!result.listings.some((listing) => listing.company === 'OldCo'), 'Expected 3-hour listing to be excluded.');
-  assert(!result.listings.some((listing) => listing.company === 'AncientCo'), 'Expected day-old listing to be excluded.');
+function runRecentPostingsFixtureStructureTest() {
+  // Ties the mock structure above to reality: proves that in the real saved
+  // search-results page, every results-list card title is immediately
+  // followed by the company then the location as plain <p> text, and that
+  // those company <p>s carry no company profile link. If LinkedIn's markup
+  // drifts from what the extractor assumes, this fails loudly.
+  const html = readFixture('doc/examples/Starbucksmoreunselectedbare.html');
+  const titleEchoRe = /<span[^>]*>([^<]+)<\/span><span aria-hidden="true">\1<\/span><\/p><\/div>([\s\S]{0,600}?)(?=<button|<div class="_9d763823 _721d4f0a ca9510cb b8796dd2 _7c466880 cdd6fd8c)/g;
+  const cards = [];
+  let match;
+  while ((match = titleEchoRe.exec(html)) && cards.length < 5) {
+    const following = match[2];
+    const ps = [...following.matchAll(/<p[^>]*>([^<]+)<\/p>/g)].map((m) => m[1].trim());
+    cards.push({ title: match[1].trim(), company: ps[0], location: ps[1] });
+  }
+
+  assert(cards.length >= 5, `Expected at least 5 list cards in the fixture, found ${cards.length}.`);
+  const expectedCompanies = ['Compass', 'Redfin', 'Redfin', 'Armada', 'Armada'];
+  cards.forEach((card, i) => {
+    assert(card.company === expectedCompanies[i], `Expected card ${i} company ${expectedCompanies[i]}, got ${card.company}.`);
+    assert(/,\s*[A-Z]{2}\b|On-site|Hybrid|Remote/.test(card.location || ''), `Expected card ${i} location to look like a location, got ${card.location}.`);
+  });
+  // The company text is plain <p>, not a company profile link.
+  assert(!/<a[^>]*href="[^"]*\/company\/[^"]*"[^>]*>\s*Compass\s*</.test(html), 'Expected the list-card company to be plain text, not a /company/ link.');
 }
 
 function runRecentPostingsIsInjectionSafeTest() {
@@ -565,7 +533,8 @@ runStarbucksFixtureTest();
 runSalaryAbsentDoesNotUseUnrelatedHeaderSalaryTest();
 runMarkdownDescriptionDomTest();
 runUnsupportedPageTest();
-runRecentPostingsSyntheticCardsTest();
+runRecentPostingsListCardStructureTest();
+runRecentPostingsFixtureStructureTest();
 runRecentPostingsIsInjectionSafeTest();
 runRecentPostingsWholePageFallbackTest();
 runRecentPostingsWholePageFallbackEchoDedupTest();

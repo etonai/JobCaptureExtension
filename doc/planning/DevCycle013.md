@@ -1320,3 +1320,196 @@ title and its location); Codex tried to read it from page-wide flattened
 text and Sonnet tried to read it from DOM signals that exist only on the
 open detail pane, so neither ever isolated a list card and read the company
 from its position inside it — which is the only method that works.
+
+---
+
+## Fix: Positional Per-Card Company Extraction (Opus, 2026-07-15)
+
+Implemented the method the analysis above prescribes.
+
+### What changed in `captureRecentJobPostings()`
+
+- **Removed** the guessed card-boundary path entirely: `candidateBlocks()`
+  (the BEM/`data-job-id`/`/jobs/view/` selector list that matched ~1 real
+  element), `extractFromBlock()`, and the detail-pane-only
+  `extractCompanyIdentity()` / company-link / aria-label helpers.
+- **Added `listCardListings(document)`**, the new primary scanner. It reads
+  the results list positionally from the verified real structure:
+  1. `isEchoTitleParagraph()` identifies each card's title — a `<p>` whose
+     first two child `<span>`s have identical text (LinkedIn's title
+     rendering), excluding any whose text reads as an age so a bare
+     "N ago" echo is never mistaken for a title.
+  2. For each title, the company is the very next `<p>` in document order,
+     and the age is the first qualifying "N ago" `<p>` before the next
+     title. This is the exact title → company → location order confirmed in
+     the fixture.
+  3. The positional company candidate is accepted unless it is itself a
+     location or an age (all that can occupy that slot when LinkedIn omits a
+     card's company `<p>`), in which case the company is left blank — the
+     listing still appears, never mislabeled.
+- **`detailPageListing()`** (open-pane header) is unchanged and still runs,
+  so the currently-open job keeps its precise company.
+- **Fallback reordered:** the whole-page `bodyTextAgeListings()` last resort
+  now triggers when the structural *list* scan returns nothing (not when the
+  combined result is empty), so a page where only the open-pane listing
+  resolves still gets its results list surfaced (company blank) instead of
+  collapsing to one row.
+- Listings now carry `companySource: 'list-card' | 'detail-page' | 'missing'`.
+- Debug now reports `titleParagraphCount` / `cardListingCount` instead of the
+  removed `blockCount`; the popup suffix was updated to match.
+
+### Tests — now genuinely fixture-backed
+
+The repeated failure across this cycle was validating against synthetic
+mocks that didn't match reality. Two new tests close that loop:
+
+- `runRecentPostingsFixtureStructureTest` parses the real
+  `Starbucksmoreunselectedbare.html` and asserts the actual list cards are
+  `Compass / Redfin / Redfin / Armada / Armada`, each title immediately
+  followed by that company then a location, and that the company is plain
+  `<p>` text with no `/company/` link. If LinkedIn's markup drifts from what
+  the extractor assumes, this fails loudly. This is the ground-truth check
+  the analysis demanded.
+- `runRecentPostingsListCardStructureTest` builds cards from that same
+  verified structure (title echo-`<p>`, company `<p>`, location `<p>`, age
+  `<p>`) and asserts the extractor returns the right companies, excludes a
+  3-hour and a no-age card, and — critically — leaves the company blank
+  (not the location) on a card where the company `<p>` is omitted while
+  still reporting that qualifying-age listing.
+
+The obsolete synthetic `candidateBlocks`-based test was removed. The
+whole-page-fallback, echo-dedup, injection-isolation, detail-page, and
+unsupported-page tests all still pass unchanged.
+
+### Honest scope note
+
+`listCardListings` depends on LinkedIn continuing to render list-card titles
+as the identical-two-span echo `<p>` and to order title → company → location.
+Both are verified against the one real multi-card fixture available
+(`Starbucksmoreunselectedbare.html`), and the fixture test will catch drift,
+but only that one page/locale is covered. The `bodyTextAgeListings` fallback
+still guarantees a recent posting is never *hidden* (only shown with a blank
+company) if the structure ever changes. If a future real page still shows
+"Unknown company" rows, the debug output (`titleParagraphCount`,
+`cardListingCount`) will show whether titles were found at all, which is the
+next evidence to reason from.
+
+Verification run:
+
+```powershell
+node --check extension\content\captureActivePage.js
+node --check extension\background\background.js
+node --check extension\popup\popup.js
+node --check extension\options\options.js
+node --check extension\shared\csv.js
+node --check extension\shared\filename.js
+node --check extension\shared\projectFolderStore.js
+node --check extension\shared\priorCompanyCache.js
+node --check extension\shared\saveListing.js
+node extension\tests\captureActivePage.smoke.test.mjs
+node extension\tests\persistence.test.mjs
+```
+
+All commands passed. Bumped `extension/manifest.json` to `0.0.13.12`,
+continuing the DevCycle013 patch sequence.
+
+---
+
+## Fable Analysis: Why 0.0.13.12 (Opus's Positional Fix) Still Shows "Unknown company" (2026-07-15)
+
+The user switched the working model to Fable and supplied a second real
+saved page: `doc/examples/Senior Software Engineer _ Docusign _
+LinkedIn.html`, a genuine multi-card search-results snapshot. On
+`0.0.13.12` the popup showed 5 recent postings — the ages were right, the
+dedup was right, and **every company was "Unknown company"**. This analysis
+is grounded entirely in that new fixture. No code or version change
+accompanies it.
+
+### Root cause: the "verified" title pattern exists in only one of LinkedIn's markup variants
+
+Opus's `listCardListings()` identifies a card by its title `<p>`, defined
+as a `<p>` whose first two child `<span>`s carry **identical text** (the
+"echo" pattern found in the Starbucks fixture). Against the Docusign
+fixture:
+
+| Signal | Starbucks fixture | Docusign fixture |
+| --- | --- | --- |
+| echo-title `<p>` (two identical spans) | present, 1/card | **0 matches in the whole file** |
+| `button[aria-label="Dismiss <TITLE> job"]` | **25** (1/card) | **25** (1/card) |
+| title → company → location `<p>` order | yes | yes |
+| age `<p>` (`Posted N ago` + aria-hidden `N ago` echo) | yes | yes |
+| open-pane `aria-label="Company, X."` | 1 | 1 |
+| plain-text company `<p>` (no link, hashed classes) | yes | yes |
+
+The Docusign variant renders the title like this:
+
+```html
+<p class="…"><span class="…"></span><span aria-hidden="true">AI Native Software Engineer…</span></p>
+```
+
+The first span is **empty**; only the `aria-hidden` span carries the title
+text. `isEchoTitleParagraph()` requires two identical non-empty span
+texts, so it matches zero paragraphs, `listCardListings()` returns
+nothing, the scan falls through to the whole-page age fallback — which by
+design carries no company — and every row renders "Unknown company." (The
+one row Opus's version could have labeled, the open Docusign job, was
+*correctly* absent: its card says `Posted 5 hours ago`, outside the
+two-hour window. The age filtering and echo dedup worked exactly as
+intended; only card detection failed.)
+
+So 0.0.13.12's method was right (positional per-card extraction) but its
+card detector was generalized from a **sample of one**. LinkedIn is
+serving at least two concurrently-live markup variants — different hashed
+class sets *and* different title micro-structure — and any detector
+verified against a single saved page can be silently absent from the next.
+
+### What is actually invariant across both real pages
+
+The per-card **dismiss button** — `aria-label="Dismiss <TITLE> job"` —
+appears exactly once per card in both fixtures (25/25 in each), and it
+carries the card's exact title text. This was, notably, the anchor the
+original Opus analysis recommended before the implementation drifted to
+the echo pattern. Combined with the (also invariant) content order, this
+yields a detector verified against **both** variants:
+
+1. Collect card titles from every `button[aria-label^="Dismiss "]` whose
+   label ends in `" job"` (strip the prefix/suffix to get the title).
+2. A `<p>` is a card title iff its normalized text matches one of those
+   titles (matching text handles duplicate titles across cards naturally).
+   Keep the echo-span detector as a secondary signal for surfaces that
+   lack dismiss buttons.
+3. As in 0.0.13.12: company = the next `<p>` in document order (rejected
+   only if it reads as a location or age), age = first qualifying age
+   `<p>` before the next title. Everything downstream (blank-company
+   fallback, echo dedup, uniqueness) stays unchanged.
+
+Proof this works — running exactly that positional read over the raw
+Docusign fixture recovers every card correctly:
+
+```
+1.  Senior Software Engineer                       → Docusign               (Posted 5 hours ago)
+2.  Full-Stack Software Engineer: Mid, Senior…     → Salesforce             (Posted 12 hours ago)
+3.  Software Engineer II                           → Microsoft              (Posted 10 hours ago)
+4.  Software Engineering LMTS                      → Salesforce             (Posted 21 hours ago)
+5.  AI Native Software Engineer                    → Remitly, Inc. - XML    (Posted 1 hour ago)
+6.  Senior Software Development Engineer- Receiver → Remitly, Inc. - XML    (Posted 1 hour ago)
+7.  Assoc Engineer, Software - Agentic AI…         → T-Mobile               (Posted 6 hours ago)
+8.  Senior AI Engineer                             → Bristol Myers Squibb   (Posted 23 hours ago)
+9.  Senior Software Engineer                       → NetApp                 (Posted 8 hours ago)
+10. Senior Software Engineer, Data Enablement…     → Brex                   (Posted 10 hours ago)
+11. Software Engineer, E-Commerce AI Platform…     → TikTok USDS Joint Vent.(Posted 4 hours ago)
+12. Senior Software Engineer (Python + Distr.…)    → Scribd, Inc.           (Posted 13 hours ago)
+```
+
+On this snapshot the popup should show the two Remitly rows (1 hour) with
+real company names; the rest are correctly outside the window.
+
+### Verification standard for the fix
+
+Per the user's feedback that tests written around unverified assumptions
+wasted their time: the implementation of this fix should be validated
+directly against **both** real fixtures (Starbucks and Docusign) — the
+fixture-structure test must assert real extracted companies from each
+variant — and no claim of "working" should be made until the user confirms
+real company names on their live page. Mock-only tests of this detector
+prove nothing about LinkedIn and should not be treated as verification.

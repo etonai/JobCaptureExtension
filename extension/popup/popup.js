@@ -95,14 +95,13 @@ async function scanRecentPostings() {
     const listings = Array.isArray(result.listings) ? result.listings : [];
     if (listings.length === 0) {
       const debugSuffix = result.debug
-        ? ` (debug: ${result.debug.blockCount} card matches, ${result.debug.ageLineCount} age-text lines on page)`
+        ? ` (debug: ${result.debug.titleParagraphCount} cards, ${result.debug.ageLineCount} age-text lines on page)`
         : '';
       setRecentPostingsState('empty', `No visible postings from the last two hours.${debugSuffix}`);
       return;
     }
     const noun = listings.length === 1 ? 'posting' : 'postings';
-    const debugSuffix = result.debug ? ` (${result.debug.blockCount} card matches)` : '';
-    setRecentPostingsState('ready', `${listings.length} recent ${noun} found.${debugSuffix}`, listings);
+    setRecentPostingsState('ready', `${listings.length} recent ${noun} found.`, listings);
   } catch (error) {
     setRecentPostingsState('error', error.message || String(error));
   }

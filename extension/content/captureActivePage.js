@@ -592,69 +592,99 @@ export function captureRecentJobPostings() {
     return normalizeLine(node?.innerText || node?.textContent || '');
   }
 
-  function companyNameFromAriaLabel(value) {
-    const match = normalizeLine(value).match(/^Company,\s*(.+?)\.?$/i);
-    return match ? normalizeLine(match[1]) : '';
+  function isElementNode(node) {
+    return node?.nodeType === 1 || Boolean(node?.tagName);
   }
 
-  function accessibleCompanyName(node) {
-    const ariaLabel = typeof node?.getAttribute === 'function' ? node.getAttribute('aria-label') : '';
-    const fromAriaLabel = companyNameFromAriaLabel(ariaLabel);
-    return fromAriaLabel || nodeText(node);
+  function elementChildren(node) {
+    return Array.from(node?.childNodes || []).filter(isElementNode);
   }
 
-  function findCompanyLinkNodes(root) {
-    if (typeof root?.querySelectorAll === 'function') {
-      return Array.from(root.querySelectorAll('a[href*="/company/"]'));
-    }
-    const single = typeof root?.querySelector === 'function' ? root.querySelector('a[href*="/company/"]') : null;
-    return single ? [single] : [];
+  function tagNameOf(node) {
+    return String(node?.tagName || '').toLowerCase();
   }
 
-  // Company identity is only ever accepted from an explicit LinkedIn identity
-  // signal (an accessible "Company, X." label, or a link into a company's
-  // profile page). Free-text proximity guessing was removed because LinkedIn
-  // card chrome (save state, social proof, benefits, location) is an
-  // unbounded vocabulary that a denylist can never fully cover; an
-  // unrecognized listing is omitted rather than guessed.
-  function extractCompanyIdentity(root) {
-    const labelNode = typeof root?.querySelector === 'function' ? root.querySelector('[aria-label^="Company,"]') : null;
-    const labelName = labelNode ? companyNameFromAriaLabel(labelNode.getAttribute?.('aria-label') || '') : '';
-    if (labelName) {
-      return { company: labelName, companySource: 'aria-label' };
-    }
-
-    const linkNames = findCompanyLinkNodes(root)
-      .map(accessibleCompanyName)
-      .filter(Boolean);
-    const uniqueLinkNames = Array.from(new Set(linkNames.map((name) => normalizeLine(name))));
-    if (uniqueLinkNames.length === 1) {
-      return { company: uniqueLinkNames[0], companySource: 'company-link' };
-    }
-
-    return { company: '', companySource: 'missing' };
+  function paragraphElements(doc) {
+    return typeof doc?.querySelectorAll === 'function' ? Array.from(doc.querySelectorAll('p')) : [];
   }
 
-  // A qualifying age is a strict, well-tested signal on its own
-  // (`recentAgeText` requires a bounded "N minute(s)/hour(s) ago" pattern).
-  // A listing whose age qualifies must never be dropped just because its
-  // company could not be confidently identified — that would silently hide
-  // real recent postings, which is a worse outcome for this feature than
-  // showing the posting with its company left blank (the popup already
-  // renders a blank company as "Unknown company"). Company confidence only
-  // ever affects the `company` / `companySource` fields, never whether the
-  // listing is returned at all.
-  function extractFromBlock(root) {
-    const lines = visibleLines(root?.innerText || root?.textContent || '');
-    const ageIndex = lines.findIndex((line) => Boolean(recentAgeText(line)));
-    if (ageIndex < 0) {
-      return null;
+  // LinkedIn renders a results-list card's TITLE as a <p> containing two
+  // spans with identical visible text, the second `aria-hidden="true"`
+  // (e.g. `<span>Sr Software Engineer</span><span aria-hidden="true">Sr
+  // Software Engineer</span>`). The company and location are plain
+  // single-text <p>s; the age <p> also has two spans but with DIFFERENT
+  // text ("Posted N ago" vs "N ago"). Requiring two spans with identical
+  // text therefore isolates titles specifically. Verified against
+  // doc/examples/Starbucksmoreunselectedbare.html.
+  function isEchoTitleParagraph(paragraph) {
+    const spans = elementChildren(paragraph).filter((child) => tagNameOf(child) === 'span');
+    if (spans.length < 2) {
+      return false;
+    }
+    const first = nodeText(spans[0]);
+    const second = nodeText(spans[1]);
+    // A job title never reads as a posting age. When an age happens to render
+    // as two identical spans (a bare "N ago" with no "Posted" prefix) it must
+    // not be mistaken for a title, or it would split one card into two.
+    if (/\bago\b/i.test(first)) {
+      return false;
+    }
+    return Boolean(first) && first === second;
+  }
+
+  function isLocationText(text) {
+    return /,\s*[A-Z]{2}\b/.test(text)
+      || /\b(remote|hybrid|on-site|onsite|on site)\b/i.test(text)
+      || /\bUnited States\b/i.test(text)
+      || /\bGreater .+ Area\b/i.test(text);
+  }
+
+  // The company on a LinkedIn results-list card is plain, unlabeled text in
+  // the <p> IMMEDIATELY AFTER the title <p>, in document order. Every card
+  // in the saved search-results fixture is title -> company -> location, and
+  // the company carries no link, no aria-label, and no class distinct from
+  // the title/location that bracket it — its only reliable meaning is
+  // positional. This reads it from that verified structure instead of
+  // guessing from page-wide flattened text (Codex) or from DOM signals that
+  // exist only on the open detail pane (the earlier redesign). See the Opus
+  // analysis in DevCycle013.md.
+  //
+  // A qualifying age must never drop a listing just because the company
+  // couldn't be resolved (a blank company renders as "Unknown company"),
+  // and the positional candidate is only rejected — leaving the company
+  // blank — if it is itself a location or an age, which is all that could
+  // occupy that slot on a card where LinkedIn omitted the company <p>.
+  function listCardListings(doc) {
+    const paragraphs = paragraphElements(doc);
+    const titleIndexes = [];
+    for (let index = 0; index < paragraphs.length; index += 1) {
+      if (isEchoTitleParagraph(paragraphs[index])) {
+        titleIndexes.push(index);
+      }
     }
 
-    const postedText = recentAgeText(lines[ageIndex]);
-    const identity = extractCompanyIdentity(root);
+    const listings = [];
+    for (let t = 0; t < titleIndexes.length; t += 1) {
+      const start = titleIndexes[t];
+      const end = t + 1 < titleIndexes.length ? titleIndexes[t + 1] : paragraphs.length;
 
-    return { company: identity.company, postedText, companySource: identity.companySource };
+      let postedText = '';
+      for (let index = start; index < end; index += 1) {
+        const age = recentAgeText(nodeText(paragraphs[index]));
+        if (age) {
+          postedText = age;
+          break;
+        }
+      }
+      if (!postedText) {
+        continue;
+      }
+
+      const candidate = normalizeLine(nodeText(paragraphs[start + 1]));
+      const company = (!candidate || isLocationText(candidate) || recentAgeText(candidate)) ? '' : candidate;
+      listings.push({ company, postedText, companySource: company ? 'list-card' : 'missing' });
+    }
+    return listings;
   }
 
   function isLikelyMetadataLine(line) {
@@ -744,30 +774,6 @@ export function captureRecentJobPostings() {
     return matches;
   }
 
-  function candidateBlocks(doc) {
-    const selectors = [
-      'li.jobs-search-results__list-item',
-      '.jobs-search-results__list-item',
-      '.jobs-search-results-list__list-item',
-      '.job-card-container',
-      '[data-job-id]',
-      '[data-view-name*="job-card"]',
-      'a[href*="/jobs/view/"]'
-    ];
-    const seen = new Set();
-    const blocks = [];
-    for (const selector of selectors) {
-      for (const node of Array.from(doc?.querySelectorAll?.(selector) || [])) {
-        if (!node || seen.has(node)) {
-          continue;
-        }
-        seen.add(node);
-        blocks.push(node);
-      }
-    }
-    return blocks;
-  }
-
   function normalizePostedKey(postedText) {
     const minutes = postingAgeMinutes(postedText);
     return minutes === null ? normalizeLine(postedText).toLowerCase() : String(minutes);
@@ -805,35 +811,40 @@ export function captureRecentJobPostings() {
     };
   }
 
-  const blockListings = candidateBlocks(document)
-    .map(extractFromBlock)
-    .filter(Boolean);
+  // Primary path: the currently-open job (from its detail-pane header) plus
+  // every results-list card, each read positionally from the verified
+  // title -> company -> location <p> structure.
+  const detailListing = detailPageListing();
+  const cardListings = listCardListings(document);
 
-  let fallbackListings = [];
-  if (!blockListings.length) {
-    const detailListing = detailPageListing();
+  // When the structural list scan finds cards, trust it (companies are read
+  // from verified per-card structure). When it finds none — a page whose
+  // card markup doesn't match the verified title/company/location shape —
+  // fall back to scanning the whole flattened page for qualifying ages so a
+  // recent posting is still surfaced (company left blank) rather than hidden.
+  // The fallback keys off the LIST scan being empty, not the combined result,
+  // so a page where only the open-pane detail listing resolves still gets its
+  // results list covered.
+  let listings;
+  if (cardListings.length > 0) {
+    listings = uniqueListings(detailListing ? [detailListing, ...cardListings] : cardListings);
+  } else {
     const bodyListings = bodyTextAgeListings(document.body?.innerText || '', detailListing?.postedText);
-    fallbackListings = detailListing ? [detailListing, ...bodyListings] : bodyListings;
+    listings = uniqueListings(detailListing ? [detailListing, ...bodyListings] : bodyListings);
   }
 
-  const listings = uniqueListings(blockListings.length ? blockListings : fallbackListings);
-
-  // Every prior fix to this scan was verified only against synthetic mocks
-  // or saved fixtures that turned out not to represent a real multi-card
-  // search-results page (see DevCycle013.md). Surface what the scan
-  // actually saw on the real page (not just when it finds nothing) so the
-  // next fix — specifically, verifying candidateBlocks() against real
-  // per-card markup — can be based on real evidence instead of a guess.
-  const debug = (() => {
-    const bodyText = document.body?.innerText || '';
-    const ageLines = visibleLines(bodyText).filter((line) => Boolean(recentAgeText(line)));
-    return {
-      blockCount: candidateBlocks(document).length,
-      ageLineCount: ageLines.length,
-      sampleAgeLines: ageLines.slice(0, 5),
-      detailPageListingFound: Boolean(detailPageListing())
-    };
-  })();
+  // Diagnostics: surface what the structural scan actually saw on the real
+  // page, so any remaining shortfall can be reasoned about from evidence
+  // rather than guessed (see DevCycle013.md).
+  const bodyText = document.body?.innerText || '';
+  const ageLines = visibleLines(bodyText).filter((line) => Boolean(recentAgeText(line)));
+  const debug = {
+    titleParagraphCount: paragraphElements(document).filter(isEchoTitleParagraph).length,
+    cardListingCount: cardListings.length,
+    detailPageListingFound: Boolean(detailListing),
+    ageLineCount: ageLines.length,
+    sampleAgeLines: ageLines.slice(0, 5)
+  };
 
   return {
     ok: true,
