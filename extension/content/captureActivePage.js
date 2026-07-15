@@ -1,4 +1,4 @@
-export function captureActivePage() {
+﻿export function captureActivePage() {
   function normalizeLine(value) {
     return String(value ?? '').replace(/\s+/g, ' ').trim();
   }
@@ -97,6 +97,8 @@ export function captureActivePage() {
       || lower === 'jobs'
       || lower === 'messaging'
       || lower === 'notifications'
+      || lower === '·'
+      || lower === '•'
       || lower === 'me'
       || lower === 'for business'
       || /^\d+ notifications?$/.test(lower)
@@ -300,6 +302,7 @@ export function captureActivePage() {
       record.benefits = linesToBlock(lines.slice(benefitsIndex + 1, end));
     }
   }
+
   function plainTextDescriptionToMarkdown(text) {
     return normalizeBlock(text || '');
   }
@@ -542,4 +545,249 @@ export function captureActivePage() {
     signals: parsed.signals
   };
 }
+
+
+
+export function captureRecentJobPostings() {
+  function normalizeLine(value) {
+    return String(value ?? '').replace(/\s+/g, ' ').trim();
+  }
+
+  function visibleLines(text) {
+    return String(text ?? '')
+      .replace(/\r\n/g, '\n')
+      .replace(/\r/g, '\n')
+      .split('\n')
+      .map(normalizeLine)
+      .filter(Boolean);
+  }
+
+  function isLinkedInHost(hostname) {
+    return hostname === 'www.linkedin.com' || hostname.endsWith('.linkedin.com');
+  }
+
+  function postingAgeMinutes(text) {
+    const match = normalizeLine(text).match(/\b(?:reposted\s+|posted\s+)?(\d+)\s+(minute|minutes|hour|hours)\s+ago\b/i);
+    if (!match) {
+      return null;
+    }
+    const amount = Number(match[1]);
+    if (!Number.isFinite(amount)) {
+      return null;
+    }
+    return /^hour/i.test(match[2]) ? amount * 60 : amount;
+  }
+
+  function recentAgeText(line) {
+    const match = normalizeLine(line).match(/\b(?:(?:reposted|posted)\s+)?\d+\s+(?:minute|minutes|hour|hours)\s+ago\b/i);
+    if (!match) {
+      return '';
+    }
+    const text = normalizeLine(match[0]);
+    const minutes = postingAgeMinutes(text);
+    return minutes !== null && minutes <= 120 ? text : '';
+  }
+
+  function isUiNoise(line) {
+    const lower = normalizeLine(line).toLowerCase();
+    return lower === 'save'
+      || lower === 'apply'
+      || lower === 'easy apply'
+      || lower === 'promoted'
+      || lower === 'view job'
+      || lower === 'jobs'
+      || lower === 'home'
+      || lower === 'messaging'
+      || lower === 'notifications'
+      || lower === '·'
+      || lower === '•'
+      || lower.startsWith('company logo for')
+      || lower.includes('applicant')
+      || lower.includes('clicked apply')
+      || lower.includes('actively reviewing')
+      || lower.includes('be an early applicant')
+      || lower.includes('early applicant')
+      || /\b(alumni|alumnus|alumna|alumnae)\b.*\bworks? here\b/.test(lower)
+      || /\b\d+\s+(?:school\s+)?(?:alumni|people|employees|connections)\b.*\bworks? here\b/.test(lower)
+      || /\bconnections?\s+works? here\b/.test(lower);
+  }
+
+  function isLikelyLocationLine(line) {
+    const text = normalizeLine(line);
+    if (!text) {
+      return false;
+    }
+
+    return /\b(remote|hybrid|on-site|onsite|on site)\b/i.test(text)
+      || /\([^)]+\b(remote|hybrid|on-site|onsite|on site)\b[^)]*\)/i.test(text)
+      || /,\s*[A-Z]{2}\b/.test(text)
+      || /\bUnited States\b/i.test(text)
+      || /\bGreater .+ Area\b/i.test(text);
+  }
+
+  function isLikelyBenefitLine(line) {
+    const lower = normalizeLine(line).toLowerCase();
+    return /\b(401\(k\)|401k|benefit|benefits|vision|dental|medical|health insurance|life insurance|paid time off|pto|equity|stock)\b/.test(lower)
+      || /\+\d+\s+benefits?\b/.test(lower);
+  }
+
+  function isCompanyCandidate(line) {
+    const text = normalizeLine(line);
+    return Boolean(text)
+      && !recentAgeText(text)
+      && !isUiNoise(text)
+      && !isLikelyLocationLine(text)
+      && !isLikelyBenefitLine(text)
+      && !/^\$/.test(text);
+  }
+
+  function nodeText(node) {
+    return normalizeLine(node?.innerText || node?.textContent || '');
+  }
+
+  function queryText(root, selectors) {
+    for (const selector of selectors) {
+      const node = root?.querySelector?.(selector);
+      const text = nodeText(node);
+      if (isCompanyCandidate(text)) {
+        return text;
+      }
+    }
+    return '';
+  }
+
+  function previousCompanyLine(lines, ageIndex) {
+    const previousLines = lines.slice(Math.max(0, ageIndex - 7), ageIndex);
+    let boundaryIndex = -1;
+    for (let index = previousLines.length - 1; index >= 0; index -= 1) {
+      const line = previousLines[index];
+      if (isUiNoise(line) || isLikelyLocationLine(line) || isLikelyBenefitLine(line) || /^\$/.test(line)) {
+        boundaryIndex = index;
+        break;
+      }
+    }
+
+    if (boundaryIndex >= 0) {
+      const beforeBoundary = previousLines.slice(0, boundaryIndex).filter(isCompanyCandidate);
+      return beforeBoundary[beforeBoundary.length - 1] || '';
+    }
+
+    const candidates = previousLines.filter(isCompanyCandidate);
+    if (candidates.length < 2) {
+      return '';
+    }
+    if (isLikelyLocationLine(lines[ageIndex])) {
+      return candidates[0] || '';
+    }
+
+    return candidates[candidates.length - 1] || '';
+  }
+
+  function extractFromBlock(root) {
+    const lines = visibleLines(root?.innerText || root?.textContent || '');
+    const ageIndex = lines.findIndex((line) => Boolean(recentAgeText(line)));
+    if (ageIndex < 0) {
+      return null;
+    }
+
+    const postedText = recentAgeText(lines[ageIndex]);
+    const company = queryText(root, [
+      '.job-card-container__primary-description',
+      '.job-card-container__company-name',
+      '[data-testid*="company"]',
+      '[aria-label*="Company"]'
+    ]) || previousCompanyLine(lines, ageIndex);
+
+    if (!company || !postedText) {
+      return null;
+    }
+
+    return { company, postedText };
+  }
+
+  function candidateBlocks(doc) {
+    const selectors = [
+      'li.jobs-search-results__list-item',
+      '.jobs-search-results__list-item',
+      '.jobs-search-results-list__list-item',
+      '.job-card-container',
+      '[data-job-id]',
+      '[data-view-name*="job-card"]',
+      'a[href*="/jobs/view/"]'
+    ];
+    const seen = new Set();
+    const blocks = [];
+    for (const selector of selectors) {
+      for (const node of Array.from(doc?.querySelectorAll?.(selector) || [])) {
+        if (!node || seen.has(node)) {
+          continue;
+        }
+        seen.add(node);
+        blocks.push(node);
+      }
+    }
+    return blocks;
+  }
+
+  function extractFromBodyText(bodyText) {
+    const lines = visibleLines(bodyText);
+    const matches = [];
+    for (let index = 0; index < lines.length; index += 1) {
+      const postedText = recentAgeText(lines[index]);
+      if (!postedText) {
+        continue;
+      }
+      const company = previousCompanyLine(lines, index);
+      if (company) {
+        matches.push({ company, postedText });
+      }
+    }
+    return matches;
+  }
+
+  function normalizePostedKey(postedText) {
+    const minutes = postingAgeMinutes(postedText);
+    return minutes === null ? normalizeLine(postedText).toLowerCase() : String(minutes);
+  }
+
+  function uniqueListings(listings) {
+    const seen = new Set();
+    return listings.filter((listing) => {
+      const key = `${normalizeLine(listing.company).toLowerCase()}|${normalizePostedKey(listing.postedText)}`;
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    });
+  }
+
+  const url = window.location.href;
+  const pageTitle = document.title || '';
+  const parsedUrl = new URL(url);
+  if (!isLinkedInHost(parsedUrl.hostname)) {
+    return {
+      ok: false,
+      reason: 'not_linkedin',
+      message: 'This page is not on LinkedIn.',
+      url,
+      pageTitle,
+      listings: []
+    };
+  }
+
+  const blockListings = candidateBlocks(document)
+    .map(extractFromBlock)
+    .filter(Boolean);
+  const listings = uniqueListings(blockListings.length ? blockListings : extractFromBodyText(document.body?.innerText || ''));
+
+  return {
+    ok: true,
+    url,
+    pageTitle,
+    listings
+  };
+}
+
+
 

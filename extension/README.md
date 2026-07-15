@@ -21,6 +21,7 @@ Implemented in the current shell:
 - unsupported-page, save-success, save-error, and partial-success states
 - user-entered notes saved to JSON and the CSV `notes` column
 - prior company warning after capture when the company already appears in `old-tracking.txt` or `job-tracking.csv`
+- popup recent-postings summary for visible LinkedIn listings posted within the last two hours
 
 It does not implement the final editable review UI. The Save action writes the current captured parser result; DevCycle006 will add richer field editing before save.
 

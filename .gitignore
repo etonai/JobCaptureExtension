@@ -66,3 +66,6 @@ spikes/**/temp/
 # Generated reports
 *.lcov
 coverage-final.json
+
+# Saved LinkedIn example pages used for local parser testing
+doc/examples/

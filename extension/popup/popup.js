@@ -1,4 +1,4 @@
-import { captureActivePage } from '../content/captureActivePage.js';
+import { captureActivePage, captureRecentJobPostings } from '../content/captureActivePage.js';
 import { ensureProjectReadPermission, getProjectFolderStatus, getStoredProjectFolder } from '../shared/projectFolderStore.js';
 import { findCachedPriorCompanyWarning, findPriorCompanyInCache, refreshPriorCompanyCache } from '../shared/priorCompanyCache.js';
 import { appendCaptureRecordToCsv, OTHER_LISTINGS_CSV_FILENAME, saveCaptureRecord } from '../shared/saveListing.js';
@@ -15,6 +15,10 @@ const elements = {
   recordListingButton: document.querySelector('#recordListingButton'),
   notesInput: document.querySelector('#notesInput'),
   optionsButton: document.querySelector('#optionsButton'),
+  recentPostingsPanel: document.querySelector('#recentPostingsPanel'),
+  recentPostingsCount: document.querySelector('#recentPostingsCount'),
+  recentPostingsMessage: document.querySelector('#recentPostingsMessage'),
+  recentPostingsList: document.querySelector('#recentPostingsList'),
   statusPanel: document.querySelector('#statusPanel'),
   statusTitle: document.querySelector('#statusTitle'),
   statusMessage: document.querySelector('#statusMessage'),
@@ -46,6 +50,56 @@ function displayValue(value) {
   return value || 'Not captured';
 }
 
+function clearRecentPostingsList() {
+  elements.recentPostingsList.replaceChildren();
+}
+
+function setRecentPostingsState(kind, message, listings = []) {
+  clearRecentPostingsList();
+  elements.recentPostingsPanel.dataset.state = kind;
+  elements.recentPostingsMessage.textContent = message;
+  elements.recentPostingsCount.textContent = listings.length ? String(listings.length) : kind === 'loading' ? 'Checking' : '0';
+  elements.recentPostingsList.classList.toggle('hidden', listings.length === 0);
+
+  for (const listing of listings) {
+    const item = document.createElement('li');
+    const company = document.createElement('strong');
+    const posted = document.createElement('span');
+    company.textContent = listing.company || 'Unknown company';
+    posted.textContent = listing.postedText || '';
+    item.append(company, posted);
+    elements.recentPostingsList.append(item);
+  }
+}
+
+async function scanRecentPostings() {
+  setRecentPostingsState('loading', 'Scanning the active LinkedIn tab.');
+
+  try {
+    const tab = await getActiveTab();
+    const [injectionResult] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: captureRecentJobPostings
+    });
+    const result = injectionResult?.result;
+    if (!result) {
+      throw new Error('The active tab did not return recent postings.');
+    }
+    if (!result.ok) {
+      setRecentPostingsState('unsupported', result.message || 'Open a LinkedIn jobs page to check recent postings.');
+      return;
+    }
+    const listings = Array.isArray(result.listings) ? result.listings : [];
+    if (listings.length === 0) {
+      setRecentPostingsState('empty', 'No visible postings from the last two hours.');
+      return;
+    }
+    const noun = listings.length === 1 ? 'posting' : 'postings';
+    setRecentPostingsState('ready', `${listings.length} recent ${noun} found.`, listings);
+  } catch (error) {
+    setRecentPostingsState('error', error.message || String(error));
+  }
+}
 
 function priorCompanyWarningMessage(record, summary) {
   if (summary.source === 'old-tracking') {
@@ -344,6 +398,7 @@ chrome.runtime.onMessage.addListener((message) => {
   }
 });
 updateSaveButtons();
+scanRecentPostings();
 consumeAutoCaptureIntent().catch((error) => {
   setStatus('error', 'Shortcut Failed', error.message || String(error));
 });
