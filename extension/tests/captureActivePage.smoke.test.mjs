@@ -70,7 +70,7 @@ function linkedInAboutJobDom(children) {
   const container = elementNode('div', { componentkey: 'JobDetails_AboutTheJob_123' }, [heading, description]);
   return { heading, container };
 }
-function setMockPage({ href, hostname, pathname, title, bodyText, headings = [], domHeadings = [], paragraphNodes = [] }) {
+function setMockPage({ href, hostname, pathname, title, bodyText, headings = [], domHeadings = [], paragraphNodes = [], buttonNodes = [] }) {
   globalThis.window = {
     location: { href, hostname, pathname }
   };
@@ -86,6 +86,9 @@ function setMockPage({ href, hostname, pathname, title, bodyText, headings = [],
       }
       if (selector === 'p') {
         return paragraphNodes;
+      }
+      if (selector === 'button[aria-label]') {
+        return buttonNodes;
       }
       return [];
     }
@@ -320,30 +323,135 @@ function runRecentPostingsListCardStructureTest() {
   assert(!result.listings.some((l) => l.company === 'NoAgeCo'), 'Expected a card with no posting age to be excluded.');
 }
 
-function runRecentPostingsFixtureStructureTest() {
-  // Ties the mock structure above to reality: proves that in the real saved
-  // search-results page, every results-list card title is immediately
-  // followed by the company then the location as plain <p> text, and that
-  // those company <p>s carry no company profile link. If LinkedIn's markup
-  // drifts from what the extractor assumes, this fails loudly.
-  const html = readFixture('doc/examples/Starbucksmoreunselectedbare.html');
-  const titleEchoRe = /<span[^>]*>([^<]+)<\/span><span aria-hidden="true">\1<\/span><\/p><\/div>([\s\S]{0,600}?)(?=<button|<div class="_9d763823 _721d4f0a ca9510cb b8796dd2 _7c466880 cdd6fd8c)/g;
-  const cards = [];
-  let match;
-  while ((match = titleEchoRe.exec(html)) && cards.length < 5) {
-    const following = match[2];
-    const ps = [...following.matchAll(/<p[^>]*>([^<]+)<\/p>/g)].map((m) => m[1].trim());
-    cards.push({ title: match[1].trim(), company: ps[0], location: ps[1] });
-  }
+// --- Real-fixture verification -------------------------------------------
+// Per the verification standard recorded in DevCycle013.md: the production
+// captureRecentJobPostings function is run (injection-isolated) against DOM
+// nodes parsed MECHANICALLY from the two real saved LinkedIn pages — one per
+// observed markup variant. Nothing here is hand-invented structure; if
+// LinkedIn's markup drifts from what the extractor assumes, these fail.
 
-  assert(cards.length >= 5, `Expected at least 5 list cards in the fixture, found ${cards.length}.`);
-  const expectedCompanies = ['Compass', 'Redfin', 'Redfin', 'Armada', 'Armada'];
-  cards.forEach((card, i) => {
-    assert(card.company === expectedCompanies[i], `Expected card ${i} company ${expectedCompanies[i]}, got ${card.company}.`);
-    assert(/,\s*[A-Z]{2}\b|On-site|Hybrid|Remote/.test(card.location || ''), `Expected card ${i} location to look like a location, got ${card.location}.`);
+function decodeEntities(s) {
+  return s
+    .replace(/&amp;/g, '&')
+    .replace(/&#x27;/g, "'")
+    .replace(/&#39;/g, "'")
+    .replace(/&quot;/g, '"')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&nbsp;/g, ' ');
+}
+
+function stripTags(s) {
+  return decodeEntities(s.replace(/<[^>]+>/g, ' '));
+}
+
+// Top-level <span> children of an element's inner HTML (depth-aware, since
+// the Docusign variant nests icon spans inside the title span).
+function topLevelSpans(inner) {
+  const spans = [];
+  const re = /<span\b[^>]*>|<\/span>/g;
+  let match;
+  let depth = 0;
+  let start = -1;
+  while ((match = re.exec(inner))) {
+    if (match[0][1] !== '/') {
+      if (depth === 0) start = match.index + match[0].length;
+      depth += 1;
+    } else {
+      depth -= 1;
+      if (depth === 0 && start >= 0) {
+        spans.push(inner.slice(start, match.index));
+        start = -1;
+      }
+    }
+  }
+  return spans;
+}
+
+function fixtureDomNodes(html) {
+  const paragraphNodes = [...html.matchAll(/<p\b[^>]*>([\s\S]*?)<\/p>/g)].map((m) => {
+    const inner = m[1];
+    const spanTexts = topLevelSpans(inner).map((s) => stripTags(s).replace(/\s+/g, ' ').trim());
+    const text = stripTags(inner).replace(/\s+/g, ' ').trim();
+    return {
+      nodeType: 1,
+      tagName: 'P',
+      childNodes: spanTexts.map((t) => ({ nodeType: 1, tagName: 'SPAN', childNodes: [], innerText: t, textContent: t })),
+      innerText: text,
+      textContent: text
+    };
   });
-  // The company text is plain <p>, not a company profile link.
-  assert(!/<a[^>]*href="[^"]*\/company\/[^"]*"[^>]*>\s*Compass\s*</.test(html), 'Expected the list-card company to be plain text, not a /company/ link.');
+  const buttonNodes = [...html.matchAll(/<button\b[^>]*aria-label="([^"]*)"/g)].map((m) => ({
+    nodeType: 1,
+    tagName: 'BUTTON',
+    getAttribute(name) {
+      return name === 'aria-label' ? decodeEntities(m[1]) : '';
+    }
+  }));
+  return { paragraphNodes, buttonNodes };
+}
+
+function runRecentPostingsRealFixtureTest(fixturePath, expectations) {
+  const html = readFixture(fixturePath);
+  const { paragraphNodes, buttonNodes } = fixtureDomNodes(html);
+  setMockPage({
+    href: 'https://www.linkedin.com/jobs/search-results/?currentJobId=1',
+    hostname: 'www.linkedin.com',
+    pathname: '/jobs/search-results/',
+    title: 'Jobs | LinkedIn',
+    bodyText: '',
+    paragraphNodes,
+    buttonNodes
+  });
+
+  // Same isolation as chrome.scripting.executeScript (see the injection-safe
+  // test below): only this one function's body runs in the page.
+  const isolated = new Function(`return (${captureRecentJobPostings.toString()});`)();
+  const result = isolated();
+
+  assert(result.ok === true, `Expected ${fixturePath} scan to be supported.`);
+  for (const { company, postedText } of expectations.present) {
+    assert(
+      result.listings.some((l) => l.company === company && l.postedText === postedText && l.companySource === 'list-card'),
+      `Expected ${company} (${postedText}) from ${fixturePath}, got ${JSON.stringify(result.listings)}.`
+    );
+  }
+  assert(
+    !result.listings.some((l) => l.companySource === 'missing'),
+    `Expected every recent listing in ${fixturePath} to carry a real company, got ${JSON.stringify(result.listings)}.`
+  );
+  assert(
+    result.listings.length === expectations.count,
+    `Expected ${expectations.count} recent listings in ${fixturePath}, got ${result.listings.length}: ${JSON.stringify(result.listings)}.`
+  );
+}
+
+function runRecentPostingsDocusignFixtureTest() {
+  // Docusign variant: title <p> has an EMPTY first span; only the dismiss
+  // buttons identify the cards. This is the exact page that produced the
+  // all-"Unknown company" report against 0.0.13.12.
+  runRecentPostingsRealFixtureTest('doc/examples/Senior Software Engineer _ Docusign _ LinkedIn.html', {
+    count: 4,
+    present: [
+      { company: 'Remitly, Inc. - XML', postedText: 'Posted 1 hour ago' },
+      { company: 'Weights & Biases', postedText: 'Posted 1 hour ago' },
+      { company: 'Parametrix', postedText: 'Posted 2 hours ago' },
+      { company: 'Cisco', postedText: 'Posted 42 minutes ago' }
+    ]
+  });
+}
+
+function runRecentPostingsStarbucksFixtureTest() {
+  // Starbucks variant: titles render as the identical-two-span echo.
+  runRecentPostingsRealFixtureTest('doc/examples/Starbucksmoreunselectedbare.html', {
+    count: 4,
+    present: [
+      { company: 'Armada', postedText: 'Posted 7 minutes ago' },
+      { company: 'Microsoft', postedText: 'Posted 23 minutes ago' },
+      { company: 'SpaceX', postedText: 'Posted 48 minutes ago' },
+      { company: 'CoreWeave', postedText: 'Posted 1 hour ago' }
+    ]
+  });
 }
 
 function runRecentPostingsIsInjectionSafeTest() {
@@ -534,7 +642,8 @@ runSalaryAbsentDoesNotUseUnrelatedHeaderSalaryTest();
 runMarkdownDescriptionDomTest();
 runUnsupportedPageTest();
 runRecentPostingsListCardStructureTest();
-runRecentPostingsFixtureStructureTest();
+runRecentPostingsDocusignFixtureTest();
+runRecentPostingsStarbucksFixtureTest();
 runRecentPostingsIsInjectionSafeTest();
 runRecentPostingsWholePageFallbackTest();
 runRecentPostingsWholePageFallbackEchoDedupTest();

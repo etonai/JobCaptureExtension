@@ -608,14 +608,14 @@ export function captureRecentJobPostings() {
     return typeof doc?.querySelectorAll === 'function' ? Array.from(doc.querySelectorAll('p')) : [];
   }
 
-  // LinkedIn renders a results-list card's TITLE as a <p> containing two
-  // spans with identical visible text, the second `aria-hidden="true"`
-  // (e.g. `<span>Sr Software Engineer</span><span aria-hidden="true">Sr
-  // Software Engineer</span>`). The company and location are plain
-  // single-text <p>s; the age <p> also has two spans but with DIFFERENT
-  // text ("Posted N ago" vs "N ago"). Requiring two spans with identical
-  // text therefore isolates titles specifically. Verified against
-  // doc/examples/Starbucksmoreunselectedbare.html.
+  // One of LinkedIn's (at least two) live markup variants renders a
+  // results-list card's TITLE as a <p> containing two spans with identical
+  // visible text, the second `aria-hidden="true"` (e.g. `<span>Sr Software
+  // Engineer</span><span aria-hidden="true">Sr Software Engineer</span>`).
+  // Verified against doc/examples/Starbucksmoreunselectedbare.html. The
+  // other observed variant (the Docusign fixture) renders the title with an
+  // EMPTY first span, so this detector alone is not sufficient — see
+  // dismissButtonTitles() below for the cross-variant signal.
   function isEchoTitleParagraph(paragraph) {
     const spans = elementChildren(paragraph).filter((child) => tagNameOf(child) === 'span');
     if (spans.length < 2) {
@@ -630,6 +630,41 @@ export function captureRecentJobPostings() {
       return false;
     }
     return Boolean(first) && first === second;
+  }
+
+  // The one card marker present in BOTH observed LinkedIn markup variants
+  // (Starbucks and Docusign fixtures: exactly one per card, 25/25 in each)
+  // is the card's dismiss button, whose accessible label carries the exact
+  // job title: `aria-label="Dismiss <TITLE> job"`. Collecting these labels
+  // gives the set of card titles actually on the page, which then lets a
+  // title <p> be recognized by its text even when its span structure varies.
+  function dismissButtonTitles(doc) {
+    const buttons = typeof doc?.querySelectorAll === 'function'
+      ? Array.from(doc.querySelectorAll('button[aria-label]'))
+      : [];
+    const titles = new Set();
+    for (const button of buttons) {
+      const label = normalizeLine(button.getAttribute?.('aria-label') || '');
+      const match = label.match(/^Dismiss (.+) job$/);
+      if (match && match[1]) {
+        titles.add(match[1]);
+      }
+    }
+    return titles;
+  }
+
+  // A paragraph is a card title if it matches either variant's signal: the
+  // echo-span structure (Starbucks variant), or text equal to a title taken
+  // from a dismiss button on the same page (works in both variants,
+  // including Docusign's empty-first-span title rendering). Text matching
+  // also handles duplicate titles across cards, since membership in the
+  // title set doesn't depend on which card the text came from.
+  function isCardTitleParagraph(paragraph, dismissTitles) {
+    if (isEchoTitleParagraph(paragraph)) {
+      return true;
+    }
+    const text = nodeText(paragraph);
+    return Boolean(text) && !recentAgeText(text) && dismissTitles.has(text);
   }
 
   function isLocationText(text) {
@@ -656,9 +691,10 @@ export function captureRecentJobPostings() {
   // occupy that slot on a card where LinkedIn omitted the company <p>.
   function listCardListings(doc) {
     const paragraphs = paragraphElements(doc);
+    const dismissTitles = dismissButtonTitles(doc);
     const titleIndexes = [];
     for (let index = 0; index < paragraphs.length; index += 1) {
-      if (isEchoTitleParagraph(paragraphs[index])) {
+      if (isCardTitleParagraph(paragraphs[index], dismissTitles)) {
         titleIndexes.push(index);
       }
     }
@@ -838,8 +874,11 @@ export function captureRecentJobPostings() {
   // rather than guessed (see DevCycle013.md).
   const bodyText = document.body?.innerText || '';
   const ageLines = visibleLines(bodyText).filter((line) => Boolean(recentAgeText(line)));
+  const debugDismissTitles = dismissButtonTitles(document);
   const debug = {
-    titleParagraphCount: paragraphElements(document).filter(isEchoTitleParagraph).length,
+    dismissTitleCount: debugDismissTitles.size,
+    titleParagraphCount: paragraphElements(document)
+      .filter((paragraph) => isCardTitleParagraph(paragraph, debugDismissTitles)).length,
     cardListingCount: cardListings.length,
     detailPageListingFound: Boolean(detailListing),
     ageLineCount: ageLines.length,

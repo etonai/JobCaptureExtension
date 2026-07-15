@@ -1513,3 +1513,82 @@ fixture-structure test must assert real extracted companies from each
 variant — and no claim of "working" should be made until the user confirms
 real company names on their live page. Mock-only tests of this detector
 prove nothing about LinkedIn and should not be treated as verification.
+
+---
+
+## Fix: Dismiss-Button Title Detection Across Both Markup Variants (Fable, 2026-07-15)
+
+Implemented the fix prescribed by the analysis above.
+
+### Code changes (`extension/content/captureActivePage.js`)
+
+- Added `dismissButtonTitles(doc)`: collects the exact card titles from
+  every `button[aria-label]` whose label matches `Dismiss <TITLE> job` —
+  the one per-card marker present in both observed markup variants.
+- Added `isCardTitleParagraph(paragraph, dismissTitles)`: a `<p>` is a card
+  title if it matches **either** variant's signal — the echo-span structure
+  (Starbucks variant, kept as a secondary detector for surfaces without
+  dismiss buttons), or text equal to a dismiss-button title (works in both
+  variants, including Docusign's empty-first-span rendering). A paragraph
+  whose text reads as an age is never accepted as a title.
+- `listCardListings()` now uses the combined detector. Everything
+  downstream — positional company read, location/age rejection,
+  blank-company fallback, echo dedup, uniqueness — is unchanged from
+  0.0.13.12.
+- Debug output now also reports `dismissTitleCount`, and
+  `titleParagraphCount` counts via the combined detector.
+
+### Verification — real markup, production code, before shipping
+
+Following the standard above, verification was done by running the actual
+production `captureRecentJobPostings` (injection-isolated via
+`new Function`, matching `chrome.scripting.executeScript` semantics)
+against DOM nodes **mechanically parsed from both real saved pages** — not
+hand-built mocks. Results:
+
+- `Senior Software Engineer _ Docusign _ LinkedIn.html` (the page that
+  produced the all-"Unknown company" report on 0.0.13.12):
+  `Remitly, Inc. - XML` (Posted 1 hour ago), `Weights & Biases` (Posted 1
+  hour ago), `Parametrix` (Posted 2 hours ago), `Cisco` (Posted 42 minutes
+  ago) — every recent listing carries a real company, none are `missing`.
+  (The two Remitly cards, same company and same age, collapse to one row
+  under the existing company+age dedup.)
+- `Starbucksmoreunselectedbare.html`: `Armada` (Posted 7 minutes ago),
+  `Microsoft` (Posted 23 minutes ago), `SpaceX` (Posted 48 minutes ago),
+  `CoreWeave` (Posted 1 hour ago) — likewise all real, none `missing`.
+
+That exact verification is now the shipped test:
+`runRecentPostingsDocusignFixtureTest` and
+`runRecentPostingsStarbucksFixtureTest` in
+`extension/tests/captureActivePage.smoke.test.mjs` parse the two real
+fixtures into DOM nodes and assert those companies from the production
+function, replacing the previous regex-only Starbucks structure check.
+The echo-variant mock test (edge behaviors: company-omitted card, age
+exclusions) is retained; the mock harness gained `button[aria-label]`
+support.
+
+### Scope note
+
+Two real variants are now covered, and the fallback still guarantees a
+qualifying posting is never hidden (only blank-labeled) on a third,
+unseen variant. Per the verification standard, this is not "working"
+until the user confirms real company names on their live page.
+
+Verification run:
+
+```powershell
+node --check extension\content\captureActivePage.js
+node --check extension\background\background.js
+node --check extension\popup\popup.js
+node --check extension\options\options.js
+node --check extension\shared\csv.js
+node --check extension\shared\filename.js
+node --check extension\shared\projectFolderStore.js
+node --check extension\shared\priorCompanyCache.js
+node --check extension\shared\saveListing.js
+node extension\tests\captureActivePage.smoke.test.mjs
+node extension\tests\persistence.test.mjs
+```
+
+All commands passed. Bumped `extension/manifest.json` to `0.0.13.13`,
+continuing the DevCycle013 patch sequence.

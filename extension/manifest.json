@@ -1,7 +1,7 @@
 {
     "manifest_version":  3,
     "name":  "LinkedIn Job Capture",
-    "version":  "0.0.13.12",
+    "version":  "0.0.13.13",
     "description":  "Capture the currently open LinkedIn job posting into a local job search project.",
     "action":  {
                    "default_title":  "Capture LinkedIn Job",
