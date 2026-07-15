@@ -512,3 +512,811 @@ fixtures, implement steps 3–6 as a single focused change, replacing
 `captureRecentJobPostings()`'s company logic rather than patching it again,
 and bump the manifest version once, after the redesign — not per fixed
 string.
+
+---
+
+## Redesign Implementation Notes (2026-07-15)
+
+Implemented the plan above in `extension/content/captureActivePage.js`.
+
+### What changed
+
+- Deleted the denylist entirely from the company path: `isUiNoise`,
+  `isLikelyLocationLine`, `isLikelyBenefitLine`, `isCompanyCandidate`,
+  `previousCompanyLine`, and the guessed-BEM-class `queryText` selector list
+  are gone. Age detection (`recentAgeText`, `postingAgeMinutes`) is untouched
+  — that part of the parser was never the problem.
+- Added `extractCompanyIdentity(root)`, which accepts a company name from
+  exactly two verified signals, in order:
+  1. an element matching `[aria-label^="Company,"]` inside the card, parsed
+     as `Company, X.` → `X` (confirmed present in the Blue Origin, Starbucks,
+     EasyPost, and Uber/LinkedIn fixtures on the open job's identity block);
+  2. if that's absent, the set of `a[href*="/company/"]` links inside the
+     card — only accepted when exactly one *distinct* company name resolves
+     from those links. Two or more distinct linked companies in one card
+     (e.g. a card carrying an unrelated "people also viewed" company logo)
+     is treated as ambiguous and dropped, not guessed.
+  Anything else returns `{ company: '', companySource: 'missing' }` and the
+  listing is omitted — matching Codex's rule that a missing row beats a
+  wrong one.
+- Removed `extractFromBodyText` (the whole-page flattened-text guess used
+  when no card nodes were found). In its place, `detailPageListing()` calls
+  the existing, already-exported `captureActivePage()` and reuses its
+  `record.company` / `record.postedText`. That header-identity parsing
+  (`parseHeaderFields` in the same file) is already constrained to two lines
+  positioned immediately before a detected metadata line — a narrower,
+  better-tested heuristic than anything the recent-postings scan had — so
+  this is reuse, not a second bespoke guesser, per Open Question 3's original
+  recommendation to lean on the single-job capture path for detail pages.
+- Every returned listing now carries `companySource`
+  (`'aria-label' | 'company-link' | 'detail-page'`), so a future popup change
+  can distinguish confidence tiers if needed; today all three are treated as
+  trustworthy because none of them come from free-text guessing.
+
+### What I verified directly against the fixtures before writing this
+
+- Confirmed `aria-label="Company, X."` is present in all four checked
+  fixtures (Blue Origin, Starbucks, EasyPost, Uber/LinkedIn), each exactly
+  once — on the currently open job's identity block.
+- Confirmed `a[href*="/company/<slug>/"]` links are present per-card,
+  including in list-row-style markup, with multiple distinct companies per
+  page (Starbucks fixture: `starbucks`, `mcdonald's-corporation`,
+  `luckincoffeemalaysia`; EasyPost fixture: `easypost`, `shippo`,
+  `shipstation`). This is why the ambiguous-multiple-links case in
+  `extractCompanyIdentity` matters in practice, not just in theory — the
+  McDonald's/Luckin links in the Starbucks fixture turned out to belong to
+  an unrelated "people you may know" logo strip sitting near the open job's
+  own content, not to separate job cards. A naive "first company link in the
+  card" rule would have silently attributed the wrong company; requiring a
+  single *distinct* name is what avoids that.
+- Confirmed the previously-guessed BEM class names
+  (`.job-card-container__company-name`, `.job-card-container__primary-description`)
+  never appear as literal `class="..."` attributes in the body markup of any
+  fixture — LinkedIn renders hashed/atomic class names in production and
+  only uses the semantic BEM names inside `<style>` rule definitions. This
+  confirms the original tier-1 selector list was dead code against real
+  pages and explains why every past extraction actually ran through the
+  denylist fallback.
+
+### Known gap not resolved in this pass
+
+`candidateBlocks()` (the top-level card-selector list used to find each job
+card) still contains the same unverified selectors as before
+(`.jobs-search-results__list-item`, `.job-card-container`, `[data-job-id]`,
+etc.). None of the available saved fixtures under `doc/examples/` turned out
+to contain a genuine multi-card search-results list — the two page-level
+fixtures inspected (`Starbucksmoreunselectedbare.html`,
+`easyposteasyapplybare.html`) are single open-job detail pages with sidebar
+insight widgets, not a rendered list of distinct job cards side by side.
+Card-boundary detection is therefore still unverified against real markup
+and is the next thing to fix if company names still go missing (as opposed
+to being wrong) on a real search-results page — that would need a fresh
+saved multi-card LinkedIn search-results page as a fixture.
+
+### Tests
+
+Rewrote `runRecentPostingsSyntheticCardsTest` in
+`extension/tests/captureActivePage.smoke.test.mjs` to build mock cards
+around the two verified signals (`aria-label`, company-profile `href`)
+instead of hand-typed text-proximity scenarios. Coverage now includes: an
+aria-label-sourced company, a company-link-sourced company, the 2-hour
+boundary, `Reposted 1 hour ago`, age-variant dedup, a card whose only nearby
+text is `Saved` (the reported bug) with no company signal, alumni/location/
+benefit/title-only cards with no company signal, and a card with two
+distinct company links (ambiguous, omitted). All previously-passing
+detail-page-fallback and unsupported-page tests continue to pass unchanged
+since `detailPageListing()` preserves the original observable behavior for
+single job-detail pages.
+
+Verification run:
+
+```powershell
+node --check extension\content\captureActivePage.js
+node --check extension\background\background.js
+node --check extension\popup\popup.js
+node --check extension\options\options.js
+node --check extension\shared\csv.js
+node --check extension\shared\filename.js
+node --check extension\shared\projectFolderStore.js
+node --check extension\shared\priorCompanyCache.js
+node --check extension\shared\saveListing.js
+node extension\tests\captureActivePage.smoke.test.mjs
+node extension\tests\persistence.test.mjs
+```
+
+All commands passed. Bumped `extension/manifest.json` to `0.0.13.6`,
+continuing the DevCycle013 patch sequence (the version's third component
+tracks the dev cycle; the fourth is the reload-verification patch number).
+
+---
+
+## Bug: Redesign Silently Drops Qualifying Listings (2026-07-15)
+
+### Symptom
+
+After the redesign above, real recent listings that satisfy the age filter
+— reported cases include a listing `13 minutes` old and a listing `2 hours`
+old — do not appear in the popup's recent-postings list at all. This is not
+a mislabeling; the listing is missing entirely.
+
+### This is a new failure mode, not one carried over from prior DC13 attempts
+
+Every prior implementation in this dev cycle (through `0.0.13.5`, the
+denylist-based approach Codex built and I criticized above) had the opposite
+problem: it showed a company name for essentially every card whose age
+qualified, because `previousCompanyLine()`'s fallback would accept *any*
+nearby line that wasn't on the denylist — even wrong values like `Saved` or
+a job title. That made company names unreliable, but it did not make
+qualifying listings vanish. The feature's core acceptance criterion — "each
+matching item lists the company name and the post age text" for every
+listing at or under two hours old — was met in terms of coverage, just not
+in terms of correctness.
+
+My redesign inverted that trade-off in a way I did not adequately flag as a
+blocking risk: `extractCompanyIdentity()` now returns a company only when a
+card exposes `[aria-label^="Company,"]` or exactly one distinct
+`a[href*="/company/"]` link, and `extractFromBlock()` returns `null` — the
+whole listing, including its otherwise-valid `postedText` — whenever neither
+signal resolves. Per my own fixture investigation (recorded above under
+"Known gap not resolved in this pass"), those two signals were only
+confirmed on the single currently-open job's identity block, not
+demonstrated to be reliably present on ordinary collapsed list-row cards.
+I documented that gap as a footnote instead of treating it as blocking, and
+shipped a design that fails closed on the feature's primary requirement
+(show the listing) in order to fix a secondary requirement (label it
+correctly). Silently omitting a qualifying listing is a worse outcome for
+this feature than showing it with an uncertain or occasionally wrong
+company label, since a missing listing looks identical to "there is no
+recent posting here" — the user cannot tell the difference between "nothing
+recent" and "something recent that the parser gave up on."
+
+### Root cause
+
+`candidateBlocks()` still returns cards using the same unverified selector
+list flagged as a known gap in the redesign notes above. Whatever cards it
+does find (or fails to find distinctly) are then run through
+`extractCompanyIdentity()`, which has no fallback path at all once the two
+verified signals fail — unlike the age extraction path, which has no
+equivalent strictness problem. The net effect: any card where card-boundary
+detection is imprecise, or where the company link/aria-label isn't in the
+subtree `extractFromBlock` receives, drops the entire row rather than
+degrading gracefully.
+
+### Status
+
+Fixed on 2026-07-15.
+
+### Fix
+
+A qualifying age is already a strict, bounded signal on its own
+(`recentAgeText` requires the literal `N minute(s)/hour(s) ago` pattern) —
+it doesn't need a confirmed company to be trustworthy. So company
+confidence was decoupled from whether a listing is returned at all:
+
+- `extractFromBlock()` no longer returns `null` when
+  `extractCompanyIdentity()` can't resolve a company. It always returns the
+  listing once a qualifying age is found; `company` is `''` and
+  `companySource` is `'missing'` when no verified signal was present.
+- `detailPageListing()` likewise only requires a qualifying `postedText`
+  from `captureActivePage()`'s record; a blank `record.company` no longer
+  suppresses the listing.
+- `uniqueListings()` no longer deduplicates listings that have a blank
+  company — two different cards with no identified company and the same
+  age text (e.g. two unrelated `Posted 1 hour ago` cards) are not the same
+  posting and collapsing them would silently drop one. Only listings that
+  share both a normalized company name *and* age are still deduplicated.
+- The popup needed no change: `popup.js` already rendered
+  `listing.company || 'Unknown company'`, so a blank company now correctly
+  surfaces as "Unknown company" instead of the row disappearing.
+
+This preserves everything the 2026-07-15 redesign fixed — LinkedIn UI
+chrome (`Saved`, alumni text, benefits, location, a bare title, or an
+ambiguous multi-company card) still never becomes the displayed company —
+while restoring the property every prior DC13 attempt had and this
+redesign temporarily broke: a listing whose age qualifies is never dropped
+from the popup.
+
+Added `runRecentPostingsDetailFallbackMissingCompanyTest` and expanded
+`runRecentPostingsSyntheticCardsTest` in
+`extension/tests/captureActivePage.smoke.test.mjs` to assert directly on
+the reported cases — a 13-minute-old listing and a 2-hour-old listing, each
+with no resolvable company — are still present in `result.listings` with a
+blank `company` and `companySource: 'missing'`, rather than absent.
+
+Verification run:
+
+```powershell
+node --check extension\content\captureActivePage.js
+node --check extension\background\background.js
+node --check extension\popup\popup.js
+node --check extension\options\options.js
+node --check extension\shared\csv.js
+node --check extension\shared\filename.js
+node --check extension\shared\projectFolderStore.js
+node --check extension\shared\priorCompanyCache.js
+node --check extension\shared\saveListing.js
+node extension\tests\captureActivePage.smoke.test.mjs
+node extension\tests\persistence.test.mjs
+```
+
+All commands passed. Bumped `extension/manifest.json` to `0.0.13.7`,
+continuing the DevCycle013 patch sequence.
+
+---
+
+## Bug: Redesign Drops All Listings When Card Selectors Don't Match (2026-07-15)
+
+### Symptom
+
+Reported directly by the user: no listings at all were showing for postings
+2 hours old or less, on a real LinkedIn page.
+
+### Root cause — and why this is worse than the previous bug on this page
+
+The `0.0.13.6`/`0.0.13.7` fix stopped a single card from being dropped when
+its own company couldn't be identified. It did not fix a much larger
+problem: `candidateBlocks()` — the selector list used to find job-card
+*containers* in the first place — is the same kind of unverified, guessed
+BEM-class list (`.job-card-container`, `.jobs-search-results__list-item`,
+etc.) that was already shown (earlier on this page, under "Claude Plan:
+Redesign Company Extraction") not to match literal `class="..."` attributes
+in any saved fixture's real body markup. On a real LinkedIn page this list
+plausibly matches **zero** elements, meaning `blockListings` is empty.
+
+Before the 2026-07-15 redesign, an empty `blockListings` fell through to
+`extractFromBodyText()` — a scan of the *entire* flattened page for every
+occurrence of a qualifying age string, guessing a company for each via the
+denylist-based `previousCompanyLine()`. That function was wrong about
+company names, but it still found and reported every recent posting on the
+page. My redesign replaced that whole-page multi-match scan with
+`detailPageListing()`, which calls `captureActivePage()` — a parser built
+to describe **one single job's header** (company/title/one metadata line).
+That function can structurally return at most one listing. On a real
+search-results page carrying many distinct recent postings, this collapsed
+"every recent posting on the page" down to "at most one, if the single-job
+header heuristic happens to parse the page at all." That is a strictly
+worse regression than the company-mislabeling bug this whole page has been
+tracking: instead of trading "wrong label" for "correct label or blank,"
+this traded "every posting shown" for "at most one posting shown," which is
+exactly the failure the user hit — 2-hour-and-under listings not appearing
+at all.
+
+I made this mistake despite having already flagged the underlying cause
+myself, in this document, under "Known gap not resolved in this pass" —
+I described `candidateBlocks()` as unverified and likely to miss real
+markup, but treated that as a scoped-out footnote instead of recognizing it
+made the fallback path the *primary* path in practice, and therefore
+something that needed the same never-drop-a-qualifying-listing guarantee
+the per-card path got.
+
+### Fix
+
+Restored whole-page multi-match coverage as part of the fallback, without
+reintroducing the denylist:
+
+- Added `bodyTextAgeListings(bodyText, skipPostedTextOnce)`, which scans
+  every line of the flattened page for a qualifying age (the same strict,
+  bounded `recentAgeText` check used everywhere else) and reports each as
+  `{ company: '', postedText, companySource: 'missing' }`. It never reads
+  surrounding text to guess a company — that's the one thing that must not
+  come back.
+- The fallback (used only when `candidateBlocks()` finds no card nodes) is
+  now `detailPageListing()` (still tried first, since `captureActivePage()`
+  can correctly label the one posting its header parser can identify) plus
+  `bodyTextAgeListings()` for everything else on the page, with the
+  occurrence already claimed by `detailPageListing()` skipped once so the
+  same posting isn't reported twice.
+- `uniqueListings()` already treats blank-company listings as never
+  duplicates of each other (from the prior fix), so multiple distinct
+  unresolved-company postings on the same page are all preserved rather
+  than collapsing into one.
+
+Net effect: every qualifying-age posting on the page is reported again,
+matching or exceeding the coverage the pre-redesign implementation had,
+while a posting's company is only ever a real, verified name or blank
+("Unknown company" in the popup) — never a guess from nearby UI chrome.
+
+Added `runRecentPostingsWholePageFallbackTest` to
+`extension/tests/captureActivePage.smoke.test.mjs`, which reproduces the
+reported scenario directly: three distinct recent postings (13 minutes,
+1 hour, 2 hours) on a page with no matching card selectors, asserting all
+three are still returned (one correctly labeled via the detail-page header
+parser, two with an unresolved company) and that the 3-hour-old posting is
+still correctly excluded by age.
+
+Verification run:
+
+```powershell
+node --check extension\content\captureActivePage.js
+node --check extension\background\background.js
+node --check extension\popup\popup.js
+node --check extension\options\options.js
+node --check extension\shared\csv.js
+node --check extension\shared\filename.js
+node --check extension\shared\projectFolderStore.js
+node --check extension\shared\priorCompanyCache.js
+node --check extension\shared\saveListing.js
+node extension\tests\captureActivePage.smoke.test.mjs
+node extension\tests\persistence.test.mjs
+```
+
+All commands passed. Bumped `extension/manifest.json` to `0.0.13.8`,
+continuing the DevCycle013 patch sequence.
+
+### Still open
+
+`candidateBlocks()` itself remains unverified against real per-card markup.
+When it happens to match nothing (the likely common case on a real page,
+per the fixture evidence above), every listing is now sourced from the
+whole-page fallback, so at most one listing per page gets a real company
+name (via `detailPageListing()`); the rest correctly show but with
+"Unknown company." Fixing that — giving every listing on a real
+multi-posting list page an actual company name, not just an unresolved
+placeholder — requires verifying real card-boundary markup against a
+genuine multi-card LinkedIn search-results page, which none of the current
+fixtures under `doc/examples/` contain. That is the next thing to fix if
+"Unknown company" rows are still too common in practice.
+
+---
+
+## Still Broken on 0.0.13.8: Stopped Guessing, Added Diagnostics Instead (2026-07-15)
+
+### Report
+
+The user confirmed `0.0.13.8` still detects zero recent postings on a real
+LinkedIn page that has some. This is the third fix in a row for this
+feature that was "verified" only against tests and fixtures I wrote myself,
+and it still didn't work on a real page.
+
+### Why I stopped and changed approach here
+
+Every fix so far in this dev cycle — Codex's five denylist patches, my
+company-identity redesign, and my two follow-up regressions today — was
+shipped after passing tests built from assumptions about LinkedIn's real
+DOM structure, not from a real, current, multi-card LinkedIn page. The
+saved fixtures under `doc/examples/` turned out (discovered mid-cycle) to
+be single-job detail views, not the search-results list this feature
+actually needs to scan. I do not have live browser access to LinkedIn and
+have now been wrong about what its real markup looks like multiple times
+in a row — most recently about whether `candidateBlocks()` matches
+anything at all in practice. Shipping a fourth blind guess (for example,
+guessing that LinkedIn's list rows use compact age text like `2h`/`13m`
+instead of `2 hours ago`/`13 minutes ago`, or guessing some other selector)
+would repeat the exact failure pattern this whole document is a record of.
+
+### What changed instead
+
+No behavior change to the extraction logic. Added a `debug` field to
+`captureRecentJobPostings()`'s result, populated only when zero listings
+are found:
+
+- `blockCount` — how many nodes `candidateBlocks()` matched on the real
+  page (0 confirms the card-selector list is the problem; non-zero means
+  the bug is elsewhere, e.g. in age-text matching or company extraction
+  inside `extractFromBlock`).
+- `ageLineCount` and `sampleAgeLines` — how many lines of the page's whole
+  flattened text matched the age-recency check, and a few real examples.
+  If `ageLineCount` is 0 despite visible recent postings, the age regex
+  itself doesn't match LinkedIn's actual wording (e.g. abbreviated `2h`
+  instead of `2 hours ago`) — a different bug than anything fixed so far.
+  If `ageLineCount` is non-zero but `blockCount` is 0 and no listings
+  still appear, the whole-page fallback added in the previous fix has its
+  own bug.
+- `detailPageOk` / `detailPageReason` — whether `captureActivePage()`
+  considered the page supported, to check whether `detailPageListing()`
+  is contributing anything.
+
+`popup.js` now shows this as a suffix on the "No visible postings" message
+(e.g. `(debug: 0 card matches, 0 age-text lines on page)`), and logs the
+full object via `console.debug('[recent-postings-debug]', ...)`, so it can
+be read directly from the popup without opening DevTools.
+
+### Next step
+
+Waiting on the user to report what the debug output actually says on a
+real page with visible recent postings. The next fix will be based on that
+output, not on another guess about LinkedIn's markup.
+
+Verification run:
+
+```powershell
+node --check extension\content\captureActivePage.js
+node --check extension\background\background.js
+node --check extension\popup\popup.js
+node --check extension\options\options.js
+node --check extension\shared\csv.js
+node --check extension\shared\filename.js
+node --check extension\shared\projectFolderStore.js
+node --check extension\shared\priorCompanyCache.js
+node --check extension\shared\saveListing.js
+node extension\tests\captureActivePage.smoke.test.mjs
+node extension\tests\persistence.test.mjs
+```
+
+All commands passed. Bumped `extension/manifest.json` to `0.0.13.9`,
+continuing the DevCycle013 patch sequence.
+
+---
+
+## Bug: `captureRecentJobPostings` Called `captureActivePage` Across an Injection Boundary That Doesn't Exist at Runtime (2026-07-15)
+
+### Report
+
+The user reported the popup showed "Recent Postings 0 — The active tab did
+not return recent postings." on `0.0.13.9`.
+
+### Root cause
+
+`extension/popup/popup.js` runs the recent-postings scan like this:
+
+```js
+const [injectionResult] = await chrome.scripting.executeScript({
+  target: { tabId: tab.id },
+  func: captureRecentJobPostings
+});
+```
+
+`chrome.scripting.executeScript({ func })` serializes and injects **only
+that one function's body** into the target page's isolated world. It does
+not carry along other top-level functions from the same module — even
+though `popup.js` imports both `captureActivePage` and
+`captureRecentJobPostings` from the same file, they are unrelated sibling
+bindings at runtime once injected; `captureRecentJobPostings` has no more
+access to `captureActivePage` inside the injected page than it would to
+any other undeclared variable.
+
+The `0.0.13.6` fix (reusing `captureActivePage()` from inside
+`detailPageListing()`, in the "Claude Plan: Redesign Company Extraction"
+work above) introduced exactly that call. It ran correctly in every Node
+test, because Node's ES module scope makes `captureActivePage` a normal,
+resolvable identifier for any function defined in the same file — Node has
+no equivalent of `chrome.scripting.executeScript`'s serialize-and-inject
+boundary. The bug was invisible to every test in this file, including the
+ones added in the two fixes immediately before this one, because none of
+them exercised the actual constraint the real extension runs under. On a
+real page, calling `detailPageListing()` threw `captureActivePage is not
+defined`; `chrome.scripting.executeScript` returned an `injectionResult`
+with no `.result`, `popup.js`'s `if (!result)` check tripped, and the user
+saw the generic "did not return recent postings" message — before the
+`debug` diagnostics added in the previous fix ever had a chance to run,
+since they're computed later in the same function that was throwing.
+
+### Fix
+
+Made `captureRecentJobPostings` fully self-contained again, so it has no
+dependency on anything outside its own function body — the same
+constraint the pre-redesign implementation (through `0.0.13.5`) always
+satisfied, and which every fix since `0.0.13.6` silently broke.
+`detailPageListing()` no longer calls `captureActivePage()`; it now
+contains a small, deliberately duplicated re-implementation of just the
+identity-line parsing that `parseHeaderFields` in `captureActivePage`
+already does (`isLikelyMetadataLine`, `splitMetadataParts`, and a bounded
+"two lines before the first metadata line" company lookup). The debug
+block's own leftover `captureActivePage()` call (which had the identical
+bug and would have thrown the moment a real page actually reached it) was
+replaced with a call to the now-self-contained `detailPageListing()`.
+
+Verified this reimplementation produces byte-identical results to the
+previous `captureActivePage()`-backed version against all three existing
+detail-page test cases (Blue Origin, the blank-company case, and the
+whole-page-fallback case) before changing the code, by hand-tracing each
+fixture's lines through both implementations.
+
+### Regression test added
+
+Added `runRecentPostingsIsInjectionSafeTest`, which does not just call
+`captureRecentJobPostings` normally (which would pass even with the bug,
+same as every other test in this file) — it takes
+`captureRecentJobPostings.toString()`, rebuilds it via `new Function(...)`,
+and calls *that*. A function built with `new Function` only closes over
+the JS engine's global scope, never the defining module's scope, which is
+the same isolation `chrome.scripting.executeScript({ func })` imposes in
+the browser. This was verified against a standalone throwaway ES module
+reproduction before adding it to the suite: the isolated call correctly
+throws `captureActivePage is not defined` against the old
+`0.0.13.6`-`0.0.13.9` code, and passes cleanly against the fix. This is
+the test that should have existed before `0.0.13.6` shipped.
+
+Verification run:
+
+```powershell
+node --check extension\content\captureActivePage.js
+node --check extension\background\background.js
+node --check extension\popup\popup.js
+node --check extension\options\options.js
+node --check extension\shared\csv.js
+node --check extension\shared\filename.js
+node --check extension\shared\projectFolderStore.js
+node --check extension\shared\priorCompanyCache.js
+node --check extension\shared\saveListing.js
+node extension\tests\captureActivePage.smoke.test.mjs
+node extension\tests\persistence.test.mjs
+```
+
+All commands passed. Bumped `extension/manifest.json` to `0.0.13.10`,
+continuing the DevCycle013 patch sequence.
+
+### What actually went wrong across 0.0.13.6-0.0.13.10
+
+Every fix from `0.0.13.6` onward was correctness-tested only through Node,
+which cannot see the one constraint that mattered most: these functions
+don't run in a shared module scope in production, they run as
+independently serialized strings injected into a page. That gap produced a
+worse failure than any of the company-extraction bugs this document has
+tracked — total feature failure — and it took a live user report to
+surface, because nothing in the test suite could have caught it without
+deliberately testing for that exact isolation. The reported "no recent
+postings" symptom two conversations in a row (once attributed to a
+markup-guessing problem, corrected here to an injection-scope problem)
+is a reminder that a plausible-sounding root cause that fits the symptom
+still needs to be checked against how the code actually executes, not just
+argued into being additional plausible fixture evidence.
+
+---
+
+## Bug: Duplicate Rows From LinkedIn's Accessibility Echo, and Confirmed Missing Company Names (2026-07-15)
+
+### Report
+
+On `0.0.13.10` (the injection-scope fix), the user got real results for the
+first time — 5 listings — but reported two problems: (1) most rows show
+"Unknown company" instead of a real one, matching Codex's original
+complaint from the start of this cycle, and (2) duplicate rows for what is
+clearly the same posting: `Posted 24 minutes ago` / `24 minutes ago`, and
+`Posted 2 hours ago` / `2 hours ago`.
+
+### Duplicate rows — root cause and fix
+
+This is exactly the pattern already found (and noted, but not acted on)
+during the original fixture investigation earlier in this document: a
+LinkedIn card commonly renders its posting age twice — once in a visible
+span with the full text, and once in a duplicate `aria-hidden="true"` span
+carrying the bare text, for accessibility:
+
+```html
+<span class="eafbff92 _3b42afd3">Posted 3 hours ago</span><span aria-hidden="true">3 hours ago</span>
+```
+
+`document.body.innerText` flattens both spans into separate lines. The
+whole-page fallback scan (`bodyTextAgeListings`, added in the previous fix
+to stop qualifying postings from being dropped) treated each qualifying
+age line as a distinct posting, so every card scanned this way produced
+two rows instead of one.
+
+Fixed by recognizing this specific pattern: when two qualifying age
+matches occur on **immediately consecutive lines** and normalize to the
+**same age value**, the second is treated as the accessibility echo of the
+first and dropped, rather than as a second posting. This is intentionally
+narrow — it does not merge two qualifying age lines that are the same age
+but separated by other content (e.g. two different real cards that happen
+to both say "1 hour ago" with a title/company line between them), since
+those are plausibly two different real postings.
+
+Added `runRecentPostingsWholePageFallbackEchoDedupTest`, reproducing the
+user's exact reported shape (a detail-page-derived `Remitly` posting, plus
+two echo-duplicated postings), asserting the echo pairs each collapse to
+one row.
+
+### Missing company names — confirmed, not yet fixed
+
+Only 1 of 5 real postings got a company name (`Remitly`, via
+`detailPageListing()`'s single-job header heuristic). The other 4 came
+from the company-blank whole-page fallback. This is exactly the "Still
+open" / "Known gap" risk flagged twice already in this document:
+`candidateBlocks()` — the selector list used to find individual job-card
+DOM containers — was never verified against real per-card LinkedIn markup,
+because no fixture under `doc/examples/` turned out to contain a real
+multi-card search-results list. With 4 out of 5 postings falling through
+to the whole-page fallback, `candidateBlocks()` is almost certainly
+matching zero real card elements on the user's page, exactly as suspected.
+
+I'm not guessing a new selector list here — that guess-and-ship pattern is
+what produced every bug fixed so far in this cycle. Instead:
+
+- `debug` is now always attached to the result (previously only when zero
+  listings were found), including `blockCount` — the number of elements
+  `candidateBlocks()` actually matched — regardless of how many listings
+  were ultimately returned.
+- The popup now logs `[recent-postings-debug]` to the console on every
+  scan, and shows the block-match count as a small suffix on the "N recent
+  postings found" message itself, not just on the empty state.
+
+### Next step — needs real markup, not another guess
+
+To actually give every listing a real company name (not just the one
+`detailPageListing()` can label), `candidateBlocks()` needs to be replaced
+with selectors verified against a real LinkedIn search-results page's
+DOM — the same category of fix already applied to company extraction
+earlier in this document, just for card boundaries instead of company
+names. That requires real markup this project doesn't currently have
+access to. Once confirmed (e.g. `blockCount: 0` in the debug output, or a
+saved HTML export of a real multi-card search-results page), the fix is to
+give `candidateBlocks()` real, verified container selectors — mirroring
+how `extractCompanyIdentity()` was fixed by using `aria-label="Company,
+X."` and `a[href*="/company/"]`, which are known-real signals, instead of
+guessed BEM class names.
+
+Verification run:
+
+```powershell
+node --check extension\content\captureActivePage.js
+node --check extension\background\background.js
+node --check extension\popup\popup.js
+node --check extension\options\options.js
+node --check extension\shared\csv.js
+node --check extension\shared\filename.js
+node --check extension\shared\projectFolderStore.js
+node --check extension\shared\priorCompanyCache.js
+node --check extension\shared\saveListing.js
+node extension\tests\captureActivePage.smoke.test.mjs
+node extension\tests\persistence.test.mjs
+```
+
+All commands passed. Bumped `extension/manifest.json` to `0.0.13.11`,
+continuing the DevCycle013 patch sequence.
+
+---
+
+## Model switched to Opus 4.8 (2026-07-15)
+
+The user switched the working model from Sonnet to Opus 4.8 and asked for a
+root-cause analysis of why both Codex and Sonnet repeatedly failed to
+extract correct company names. The analysis below is that deliverable. It
+is analysis only — no code or version change accompanies it.
+
+Live evidence that prompted this: on `0.0.13.11` the popup showed
+`3 recent postings found. (1 card matches)` — one labeled company
+(`Remitly`, the open detail pane) and two `Unknown company` rows. The
+`(1 card matches)` figure is the decisive clue: `candidateBlocks()` matched
+exactly **one** element on the user's real page.
+
+## Opus Analysis: Why Company-Name Extraction Keeps Failing (2026-07-15)
+
+### Method
+
+I stopped reasoning from page-level counts (which is part of what misled
+the earlier attempts) and instead opened a single real list card in the
+`Starbucksmoreunselectedbare.html` fixture — which, unlike most fixtures in
+`doc/examples/`, genuinely is a multi-card search-results page
+(`/jobs/search-results/?currentJobId=...`). I extracted the actual DOM of
+the individual job cards in the left-hand results list. That one step —
+inspecting a real *list card's* internal structure, rather than counting
+signals across the whole page — is what neither prior attempt did, and it
+answers the question directly.
+
+### The decisive fact: the two "verified" signals do not exist on list cards
+
+Sonnet's redesign resolves a company only from
+`aria-label="Company, X."` or `a[href*="/company/"]`. Against the real
+search-results fixture:
+
+| Signal | Count on page | Where it actually is |
+| --- | --- | --- |
+| `aria-label="Company,"` | **1** | only the single open job in the detail pane |
+| `a[href*="/company/"]` | **7** | a minority of cards (promoted/branded), plus a "people also viewed" strip |
+| `a[href*="/jobs/view/"]` | **1** | only the open job; list cards use `?currentJobId=` (23 of those) |
+| `data-job-id` | **0** | not present at all |
+| job cards in the list | **~23** | — |
+
+So on a real results page, the two signals Sonnet treats as the *only*
+trustworthy sources of a company name are **absent from ~22 of ~23 cards.**
+They exist reliably on exactly one surface: the currently-open job in the
+detail pane. That is why the only company name the user ever sees is the
+open job (`Remitly`), sourced by `detailPageListing()`, and every list card
+comes back `Unknown company`.
+
+This also explains `(1 card matches)`: none of `candidateBlocks()`'s
+selectors (`.job-card-container`, `.jobs-search-results__list-item`,
+`[data-job-id]`, `a[href*="/jobs/view/"]`, …) match the real list cards.
+The single match is the lone `/jobs/view/` link for the open job. With
+`blockListings` empty, the code falls through to the whole-page text
+fallback, which has no per-card DOM to read a company from — hence blanks.
+
+### Where the company name actually lives
+
+The company name is not missing from the page — it is right there, but in a
+form both approaches were structurally blind to. Here is the real,
+**consistent** internal structure of every list card (extracted verbatim
+from the fixture):
+
+```
+1. TITLE="Sr Software Engineer"                              NEXT_P=["Compass","Seattle, WA"]
+2. TITLE="Software Developer I"                              NEXT_P=["Redfin","Seattle, WA"]
+3. TITLE="Software Developer II - Agentic Virtual Assistant" NEXT_P=["Redfin","Seattle, WA"]
+4. TITLE="Senior Software Engineer"                          NEXT_P=["Armada","Seattle, WA (On-site)"]
+5. TITLE="Senior Software Engineer"                          NEXT_P=["Armada","Tacoma, WA (On-site)"]
+```
+
+Each card is three sibling elements in a fixed order:
+
+```html
+<p><span class="…">Sr Software Engineer</span><span aria-hidden="true">Sr Software Engineer</span></p>  <!-- title -->
+<div class="_320e5786 …"><p class="…">Compass</p></div>                                                  <!-- company -->
+<p class="…">Seattle, WA</p>                                                                             <!-- location -->
+```
+
+The company (`Compass`, `Redfin`, `Armada`) is **plain text in a `<p>` with
+obfuscated/hashed class names** — no company link, no `aria-label`, nothing
+that distinguishes it, by attribute, from the title `<p>` or the location
+`<p>` that bracket it. Its identity as "the company" is defined
+**positionally**: it is the text block between the title and the location,
+inside the card.
+
+### Why each approach failed, precisely
+
+- **Codex (denylist over flattened text).** Codex tried to pick the company
+  out of the page's flattened text by rejecting everything that "looks
+  like" chrome. But on a real card the company sits immediately adjacent to
+  the title and the location — three bare strings in a row — and there is no
+  general text rule that says "Compass is a company but Sr Software Engineer
+  is a title and Seattle, WA is a location." The denylist could suppress
+  known noise, but it could never *positively* identify which of several
+  equally-plain adjacent strings was the company. Every new page surfaced
+  another string the denylist hadn't seen, because the task it was set —
+  classify free text with no structure — is not solvable by enumeration.
+
+- **Sonnet (verified DOM signals, but only the ones on the detail pane).**
+  Sonnet correctly diagnosed that guessing from text was the disease and
+  that structural signals were the cure — but then verified those signals
+  against fixtures that were mostly single-job detail views, and never
+  opened a *list card*. So it "verified" `aria-label="Company,"` and
+  `a[href*="/company/"]`, which are real, but real only on the one surface
+  it happened to look at. Applied to the list, those signals resolve
+  nothing, and Sonnet's own rule ("omit rather than guess") then correctly —
+  and uselessly — blanks every list card. Sonnet fixed the *wrong-answer*
+  failure by converting it into a *no-answer* failure.
+
+- **The shared blind spot.** Both treated "find the company" as either a
+  page-global text problem (Codex) or a page-global selector problem
+  (Sonnet). It is neither. It is a **per-card, positional** problem: you
+  must first isolate one card's DOM subtree, then read the company from its
+  position *within that card* (between title and location). Neither ever
+  established the card boundary for the real list, so neither could ask the
+  only question that has a reliable answer.
+
+### What a correct implementation requires
+
+1. **Find real card boundaries.** The stable per-card anchors on the real
+   page are the results-list job links (`a[href*="currentJobId="]`, 23 of
+   them — one per card) and the per-card dismiss buttons
+   (`aria-label="Dismiss <TITLE> job"`, also one per card and, usefully,
+   containing the exact title). Anchor on one of these and walk up to the
+   card container, instead of guessing hashed container class names.
+   `candidateBlocks()` must be rebuilt around these; its current selector
+   list is the reason `blockCount` is ~1.
+
+2. **Read the company positionally within each card, using title and
+   location as landmarks.** Within a card: the title is known independently
+   (from the dismiss-button `aria-label`, or the `<span>X</span><span
+   aria-hidden>X</span>` echo pattern); the location is identifiable by
+   pattern (`City, ST`, `(On-site|Hybrid|Remote)`, etc.); the age/metadata
+   is identifiable by the existing `recentAgeText` grammar. The company is
+   the remaining text block between the title and the location. This is
+   positional extraction *inside a verified card subtree* — fundamentally
+   different from, and reliable where, page-global text guessing (Codex) is
+   not.
+
+3. **Keep `aria-label="Company,"` / `a[href*="/company/"]` as a
+   higher-confidence override, not the sole source.** When a card *does*
+   expose them (the open pane; promoted cards), prefer them. But they must
+   be the fast path, with positional per-card extraction as the real
+   workhorse for the ~95% of cards that lack them.
+
+4. **Verify against a real multi-card fixture before shipping.** The
+   recurring meta-failure in this cycle is that every fix was validated
+   against synthetic mocks or detail-view fixtures. `Starbucksmoreunselected
+   bare.html` is in fact a usable multi-card list fixture (five clean
+   title/company/location triples are extractable from it, shown above) and
+   should be wired into the test suite as the ground truth for list-card
+   company extraction. No further company-extraction change should be
+   marked complete until it produces `Compass / Redfin / Redfin / Armada /
+   Armada` from that fixture's list cards.
+
+### One-sentence answer
+
+The company name on LinkedIn results-list cards is plain, unlabeled text
+whose only reliable meaning is positional (the block between the card's
+title and its location); Codex tried to read it from page-wide flattened
+text and Sonnet tried to read it from DOM signals that exist only on the
+open detail pane, so neither ever isolated a list card and read the company
+from its position inside it — which is the only method that works.

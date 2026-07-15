@@ -242,40 +242,84 @@ function runMarkdownDescriptionDomTest() {
   assert(markdown.includes('[our careers page](https://example.com/jobs)'), `Expected Markdown link, got ${markdown}.`);
 }
 
-function recentCard(company, lines) {
+// Mock card shapes mirror the two verified LinkedIn identity signals found in
+// the saved fixtures under doc/examples/: an accessible `aria-label="Company,
+// X."` node (seen on the open job's identity block), and an `a[href*=
+// "/company/<slug>/"]` profile link (seen on card logos/names). Cards with
+// neither signal must be omitted rather than guessed from surrounding text.
+function companyLabelNode(name) {
   return {
-    innerText: lines.join('\n'),
-    textContent: lines.join('\n'),
-    querySelector(selector) {
-      if (/company|subtitle|primary-description/i.test(selector)) {
-        return { innerText: company, textContent: company };
-      }
-      return null;
+    getAttribute(attrName) {
+      return attrName === 'aria-label' ? `Company, ${name}.` : '';
     }
   };
 }
 
-function recentTextBlock(lines) {
+function companyLinkNode(name) {
+  return {
+    getAttribute() {
+      return '';
+    },
+    innerText: name,
+    textContent: name
+  };
+}
+
+function recentCardWithLabel(company, lines) {
+  const labelNode = companyLabelNode(company);
+  return {
+    innerText: lines.join('\n'),
+    textContent: lines.join('\n'),
+    querySelector(selector) {
+      return selector === '[aria-label^="Company,"]' ? labelNode : null;
+    },
+    querySelectorAll() {
+      return [];
+    }
+  };
+}
+
+function recentCardWithCompanyLink(company, lines) {
+  const linkNode = companyLinkNode(company);
+  return {
+    innerText: lines.join('\n'),
+    textContent: lines.join('\n'),
+    querySelector(selector) {
+      return selector === 'a[href*="/company/"]' ? linkNode : null;
+    },
+    querySelectorAll(selector) {
+      return selector === 'a[href*="/company/"]' ? [linkNode] : [];
+    }
+  };
+}
+
+function recentCardWithAmbiguousCompanyLinks(names, lines) {
+  const linkNodes = names.map(companyLinkNode);
+  return {
+    innerText: lines.join('\n'),
+    textContent: lines.join('\n'),
+    querySelector(selector) {
+      return selector === 'a[href*="/company/"]' ? linkNodes[0] : null;
+    },
+    querySelectorAll(selector) {
+      return selector === 'a[href*="/company/"]' ? linkNodes : [];
+    }
+  };
+}
+
+function recentCardWithNoCompanySignal(lines) {
   return {
     innerText: lines.join('\n'),
     textContent: lines.join('\n'),
     querySelector() {
       return null;
+    },
+    querySelectorAll() {
+      return [];
     }
   };
 }
-function recentNoisyCompanySelector(noisyCompany, lines) {
-  return {
-    innerText: lines.join('\n'),
-    textContent: lines.join('\n'),
-    querySelector(selector) {
-      if (/company|subtitle|primary-description/i.test(selector)) {
-        return { innerText: noisyCompany, textContent: noisyCompany };
-      }
-      return null;
-    }
-  };
-}
+
 function runRecentPostingsSyntheticCardsTest() {
   setMockPage({
     href: 'https://www.linkedin.com/jobs/search/?keywords=software%20engineer',
@@ -284,52 +328,152 @@ function runRecentPostingsSyntheticCardsTest() {
     title: 'Software Engineer Jobs | LinkedIn',
     bodyText: 'LinkedIn job results',
     recentNodes: [
-      recentCard('FreshCo', ['Backend Engineer', 'FreshCo', 'Remote | 37 minutes ago | 12 applicants']),
-      recentCard('HourCo', ['Platform Engineer', 'HourCo', 'Seattle, WA | 1 hour ago | 9 applicants']),
-      recentCard('BoundaryCo', ['Systems Engineer', 'BoundaryCo', 'Denver, CO | 2 hours ago | 20 applicants']),
-      recentCard('OldCo', ['Staff Engineer', 'OldCo', 'Remote | 3 hours ago | 45 applicants']),
-      recentCard('AncientCo', ['Frontend Engineer', 'AncientCo', 'Remote | 1 day ago | 8 applicants']),
-      recentCard('RepostCo', ['Core Engineer', 'RepostCo', 'Reposted 1 hour ago']),
-      recentTextBlock(['Reliability Engineer', 'SignalWorks', 'Be an early applicant', 'Remote | 42 minutes ago | 4 applicants']),
-      recentTextBlock(['Data Platform Engineer', 'AlumniSafe Co', '91 school alumni work here', 'Posted 1 hour ago']),
-      recentNoisyCompanySelector('91 school alumni work here', ['Machine Learning Engineer', 'SelectorSafe Co', '91 school alumni work here', '1 hour ago']),
-      recentTextBlock(['Cloud Engineer', 'LocationSafe Co', 'Redmond, WA (Hybrid)', 'Posted 1 hour ago']),
-      recentNoisyCompanySelector('Redmond, WA (Hybrid)', ['AI Engineer', 'SelectorLocation Co', 'Redmond, WA (Hybrid)', '1 hour ago']),
-      recentTextBlock(['Benefits Engineer', 'BenefitsSafe Co', 'Vision, 401(k), +1 benefit', 'Posted 1 hour ago']),
-      recentNoisyCompanySelector('Vision, 401(k), +1 benefit', ['Principal Engineer', 'SelectorBenefits Co', 'Vision, 401(k), +1 benefit', '1 hour ago']),
-      recentCard('Microsoft', ['Software Engineer', 'Microsoft', 'Posted 2 hours ago']),
-      recentCard('Microsoft', ['Software Engineer', 'Microsoft', '2 hours ago']),
-      recentTextBlock(['·', 'Posted 2 hours ago']),
-      recentTextBlock(['Platform Engineer', 'WorksHereSafe Co', '1 school alumni works here', 'Posted 6 minutes ago']),
-      recentTextBlock(['Senior Applied AI Engineer', '48 minutes ago'])
+      recentCardWithLabel('FreshCo', ['Backend Engineer', 'FreshCo', 'Remote | 37 minutes ago | 12 applicants']),
+      recentCardWithCompanyLink('HourCo', ['Platform Engineer', 'HourCo', 'Seattle, WA | 1 hour ago | 9 applicants']),
+      recentCardWithLabel('BoundaryCo', ['Systems Engineer', 'BoundaryCo', 'Denver, CO | 2 hours ago | 20 applicants']),
+      recentCardWithLabel('OldCo', ['Staff Engineer', 'OldCo', 'Remote | 3 hours ago | 45 applicants']),
+      recentCardWithLabel('AncientCo', ['Frontend Engineer', 'AncientCo', 'Remote | 1 day ago | 8 applicants']),
+      recentCardWithLabel('RepostCo', ['Core Engineer', 'RepostCo', 'Reposted 1 hour ago']),
+      recentCardWithNoCompanySignal(['Reliability Engineer', 'Saved', 'Remote | 13 minutes ago | 4 applicants']),
+      recentCardWithNoCompanySignal(['Data Platform Engineer', '91 school alumni work here', 'Posted 1 hour ago']),
+      recentCardWithNoCompanySignal(['Cloud Engineer', 'Redmond, WA (Hybrid)', 'Posted 2 hours ago']),
+      recentCardWithNoCompanySignal(['Benefits Engineer', 'Vision, 401(k), +1 benefit', 'Posted 1 hour ago']),
+      recentCardWithNoCompanySignal(['Senior Applied AI Engineer', '48 minutes ago']),
+      recentCardWithAmbiguousCompanyLinks(['SponsorCo', 'PartnerCo'], ['Ambiguous Engineer', '15 minutes ago']),
+      recentCardWithLabel('Microsoft', ['Software Engineer', 'Microsoft', 'Posted 2 hours ago']),
+      recentCardWithLabel('Microsoft', ['Software Engineer', 'Microsoft', '2 hours ago'])
     ]
   });
 
   const result = captureRecentJobPostings();
   assert(result.ok === true, 'Expected recent postings scan to be supported on LinkedIn jobs search.');
-  assert(result.listings.length === 13, `Expected 13 recent postings, got ${result.listings.length}.`);
-  assert(result.listings.some((listing) => listing.company === 'FreshCo' && listing.postedText === '37 minutes ago'), 'Expected minute-old listing.');
-  assert(result.listings.some((listing) => listing.company === 'HourCo' && listing.postedText === '1 hour ago'), 'Expected 1-hour listing.');
+  // Every card above has a qualifying age; only the 3-hour and 1-day cards
+  // are excluded by age. A missing/ambiguous company must never drop a
+  // qualifying listing (see the "Redesign Silently Drops Qualifying
+  // Listings" bug recorded in DevCycle013.md) - it only blanks the company
+  // field, so 12 cards in, minus the 2 age-excluded and 1 Microsoft
+  // duplicate collapsed by dedup, leaves 11 listings.
+  assert(result.listings.length === 11, `Expected 11 recent postings, got ${result.listings.length}.`);
+  assert(result.listings.some((listing) => listing.company === 'FreshCo' && listing.postedText === '37 minutes ago' && listing.companySource === 'aria-label'), 'Expected minute-old listing sourced from aria-label.');
+  assert(result.listings.some((listing) => listing.company === 'HourCo' && listing.postedText === '1 hour ago' && listing.companySource === 'company-link'), 'Expected 1-hour listing sourced from a company profile link.');
   assert(result.listings.some((listing) => listing.company === 'BoundaryCo' && listing.postedText === '2 hours ago'), 'Expected 2-hour boundary listing.');
   assert(result.listings.some((listing) => listing.company === 'RepostCo' && listing.postedText === 'Reposted 1 hour ago'), 'Expected reposted 1-hour listing.');
-  assert(result.listings.some((listing) => listing.company === 'SignalWorks' && listing.postedText === '42 minutes ago'), 'Expected early-applicant noise to be skipped when inferring company.');
-  assert(!result.listings.some((listing) => listing.company === 'Be an early applicant'), 'Expected early-applicant CTA not to be used as a company.');
-  assert(result.listings.some((listing) => listing.company === 'AlumniSafe Co' && listing.postedText === 'Posted 1 hour ago'), 'Expected alumni social proof to be skipped when inferring company.');
-  assert(!result.listings.some((listing) => listing.company === '91 school alumni work here'), 'Expected alumni social proof not to be used as a company.');
-  assert(result.listings.some((listing) => listing.company === 'SelectorSafe Co' && listing.postedText === '1 hour ago'), 'Expected noisy selector company text to fall back to inferred company.');
-  assert(result.listings.some((listing) => listing.company === 'LocationSafe Co' && listing.postedText === 'Posted 1 hour ago'), 'Expected location line to be skipped when inferring company.');
-  assert(result.listings.some((listing) => listing.company === 'SelectorLocation Co' && listing.postedText === '1 hour ago'), 'Expected noisy selector location text to fall back to inferred company.');
-  assert(!result.listings.some((listing) => listing.company === 'Redmond, WA (Hybrid)'), 'Expected location text not to be used as a company.');
-  assert(result.listings.some((listing) => listing.company === 'BenefitsSafe Co' && listing.postedText === 'Posted 1 hour ago'), 'Expected benefits line to be skipped when inferring company.');
-  assert(result.listings.some((listing) => listing.company === 'SelectorBenefits Co' && listing.postedText === '1 hour ago'), 'Expected noisy selector benefits text to fall back to inferred company.');
-  assert(!result.listings.some((listing) => listing.company === 'Vision, 401(k), +1 benefit'), 'Expected benefits text not to be used as a company.');
   assert(result.listings.filter((listing) => listing.company === 'Microsoft' && /2 hours ago/.test(listing.postedText)).length === 1, 'Expected equivalent Microsoft age variants to be deduplicated.');
-  assert(result.listings.some((listing) => listing.company === 'WorksHereSafe Co' && listing.postedText === 'Posted 6 minutes ago'), 'Expected singular works-here social proof to be skipped when inferring company.');
-  assert(!result.listings.some((listing) => listing.company === '1 school alumni works here'), 'Expected singular alumni social proof not to be used as a company.');
-  assert(!result.listings.some((listing) => listing.company === '·'), 'Expected separator bullet not to be used as a company.');
-  assert(!result.listings.some((listing) => listing.company === 'Senior Applied AI Engineer'), 'Expected title-only fallback not to be used as a company.');
+
+  const missingCompanyRows = result.listings.filter((listing) => listing.companySource === 'missing');
+  assert(missingCompanyRows.length === 6, `Expected 6 listings with an unresolved company, got ${missingCompanyRows.length}.`);
+  assert(missingCompanyRows.every((listing) => listing.company === ''), 'Expected unresolved-company listings to have a blank company, not a guessed one.');
+  assert(missingCompanyRows.some((listing) => listing.postedText === '13 minutes ago'), 'Expected the 13-minute-old listing with Saved job-state chrome to still be reported, with no company.');
+  assert(missingCompanyRows.filter((listing) => listing.postedText === 'Posted 2 hours ago').length === 1, 'Expected the 2-hour-old listing with only location text nearby to still be reported, with no company.');
+  assert(missingCompanyRows.filter((listing) => listing.postedText === 'Posted 1 hour ago').length === 2, 'Expected the alumni-noise and benefits-noise listings to both still be reported, with no company.');
+  assert(missingCompanyRows.some((listing) => listing.postedText === '48 minutes ago'), 'Expected the title-only listing to still be reported, with no company.');
+  assert(missingCompanyRows.some((listing) => listing.postedText === '15 minutes ago'), 'Expected the ambiguous-company-links listing to still be reported, with no company.');
+  assert(!result.listings.some((listing) => listing.company === 'Saved'), 'Expected job-state chrome such as Saved not to be used as a company.');
+  assert(!result.listings.some((listing) => listing.company === '91 school alumni work here'), 'Expected alumni social proof not to be used as a company.');
+  assert(!result.listings.some((listing) => listing.company === 'Redmond, WA (Hybrid)'), 'Expected location text not to be used as a company.');
+  assert(!result.listings.some((listing) => listing.company === 'Vision, 401(k), +1 benefit'), 'Expected benefits text not to be used as a company.');
+  assert(!result.listings.some((listing) => listing.company === 'Senior Applied AI Engineer'), 'Expected a title-only card with no company signal not to have its title guessed as a company.');
+  assert(!result.listings.some((listing) => listing.company === 'SponsorCo' || listing.company === 'PartnerCo'), 'Expected a card with ambiguous multiple company links not to guess either company.');
   assert(!result.listings.some((listing) => listing.company === 'OldCo'), 'Expected 3-hour listing to be excluded.');
   assert(!result.listings.some((listing) => listing.company === 'AncientCo'), 'Expected day-old listing to be excluded.');
+}
+
+function runRecentPostingsIsInjectionSafeTest() {
+  // `chrome.scripting.executeScript({ func: captureRecentJobPostings })`
+  // serializes and runs only that one function's body in the target page -
+  // it does NOT carry along sibling top-level functions from this module,
+  // including `captureActivePage`. A plain Node import test can't catch a
+  // reference back into `captureActivePage`, because both are in the same
+  // module scope here. `new Function(...)` recreates the real isolation:
+  // it only closes over the global scope, never this file's module scope,
+  // matching what actually happens in the browser. This caught the
+  // ReferenceError that shipped in 0.0.13.6-0.0.13.9 and made every
+  // fallback-path call fail silently on real LinkedIn pages.
+  const isolatedCaptureRecentJobPostings = new Function(`return (${captureRecentJobPostings.toString()});`)();
+
+  setMockPage({
+    href: 'https://www.linkedin.com/jobs/view/555666777',
+    hostname: 'www.linkedin.com',
+    pathname: '/jobs/view/555666777',
+    title: 'Isolated Injection Check',
+    bodyText: [
+      'IsolatedCo',
+      'Isolated Engineer',
+      'Remote | 10 minutes ago | 2 applicants',
+      'About the job'
+    ].join('\n')
+  });
+
+  const result = isolatedCaptureRecentJobPostings();
+  assert(result.ok === true, 'Expected the isolated (injection-realistic) call to run without a ReferenceError.');
+  assert(result.listings.some((listing) => listing.company === 'IsolatedCo' && listing.postedText === '10 minutes ago'), `Expected the isolated call to still find the posting, got ${JSON.stringify(result.listings)}.`);
+}
+
+function runRecentPostingsWholePageFallbackTest() {
+  setMockPage({
+    href: 'https://www.linkedin.com/jobs/search-results/?keywords=engineer',
+    hostname: 'www.linkedin.com',
+    pathname: '/jobs/search-results/',
+    title: 'Software Engineer Jobs | LinkedIn',
+    bodyText: [
+      'FreshCo',
+      'Backend Engineer',
+      'Remote | 13 minutes ago | 12 applicants',
+      'HourCo',
+      'Platform Engineer',
+      'Seattle, WA | 1 hour ago | 9 applicants',
+      'BoundaryCo',
+      'Systems Engineer',
+      'Denver, CO | 2 hours ago | 20 applicants',
+      'OldCo',
+      'Staff Engineer',
+      'Remote | 3 hours ago | 45 applicants'
+    ].join('\n')
+    // Intentionally no recentNodes: this reproduces a real LinkedIn page
+    // where candidateBlocks()'s guessed card selectors match nothing, which
+    // is the situation that caused every 2-hour-or-less listing to vanish
+    // once the per-card denylist fallback was removed. See "Redesign Drops
+    // All Listings When Card Selectors Don't Match" in DevCycle013.md.
+  });
+
+  const result = captureRecentJobPostings();
+  assert(result.ok === true, 'Expected the whole-page fallback scan to be supported.');
+  assert(result.listings.length === 3, `Expected all 3 qualifying-age postings to be found even without a card selector match, got ${result.listings.length}.`);
+  assert(result.listings.some((listing) => listing.company === 'FreshCo' && listing.postedText === '13 minutes ago' && listing.companySource === 'detail-page'), 'Expected the first posting to be labeled via the detail-page header parser.');
+  assert(result.listings.some((listing) => listing.company === '' && listing.postedText === '1 hour ago' && listing.companySource === 'missing'), 'Expected the second posting to still be reported with an unresolved company, not dropped.');
+  assert(result.listings.some((listing) => listing.company === '' && listing.postedText === '2 hours ago' && listing.companySource === 'missing'), 'Expected the third posting (2-hour boundary) to still be reported with an unresolved company, not dropped.');
+  assert(!result.listings.some((listing) => listing.postedText === '3 hours ago'), 'Expected the 3-hour-old posting to be excluded by age, not just by the fallback.');
+}
+
+function runRecentPostingsWholePageFallbackEchoDedupTest() {
+  setMockPage({
+    href: 'https://www.linkedin.com/jobs/search-results/?keywords=engineer',
+    hostname: 'www.linkedin.com',
+    pathname: '/jobs/search-results/',
+    title: 'Software Engineer Jobs | LinkedIn',
+    // Reproduces the real page reported by the user: each card's age is
+    // rendered twice (a visible "Posted N ago" span plus a duplicate
+    // aria-hidden "N ago" span for accessibility), which without dedup
+    // produced two "Unknown company" rows per real posting.
+    bodyText: [
+      'Remitly',
+      'Software Engineer',
+      'Remote | 30 minutes ago | 8 applicants',
+      'Some Other Card',
+      'Posted 24 minutes ago',
+      '24 minutes ago',
+      'Another Card',
+      'Posted 2 hours ago',
+      '2 hours ago'
+    ].join('\n')
+  });
+
+  const result = captureRecentJobPostings();
+  assert(result.ok === true, 'Expected the whole-page fallback scan to be supported.');
+  assert(result.listings.length === 3, `Expected 3 distinct postings after echo dedup, got ${result.listings.length}: ${JSON.stringify(result.listings)}.`);
+  assert(result.listings.some((listing) => listing.company === 'Remitly' && listing.postedText === '30 minutes ago'), 'Expected the detail-page-derived Remitly posting.');
+  assert(result.listings.filter((listing) => listing.postedText === 'Posted 24 minutes ago' || listing.postedText === '24 minutes ago').length === 1, 'Expected the visible/aria-hidden echo pair for the 24-minute posting to collapse into a single row.');
+  assert(result.listings.filter((listing) => listing.postedText === 'Posted 2 hours ago' || listing.postedText === '2 hours ago').length === 1, 'Expected the visible/aria-hidden echo pair for the 2-hour posting to collapse into a single row.');
 }
 
 function runRecentPostingsDetailFallbackTest() {
@@ -353,6 +497,26 @@ function runRecentPostingsDetailFallbackTest() {
   assert(result.listings.length === 1, `Expected one recent detail listing, got ${result.listings.length}.`);
   assert(result.listings[0].company === 'Blue Origin', `Expected Blue Origin, got ${result.listings[0].company}.`);
   assert(result.listings[0].postedText === 'Reposted 2 hours ago', `Expected reposted 2 hours, got ${result.listings[0].postedText}.`);
+}
+
+function runRecentPostingsDetailFallbackMissingCompanyTest() {
+  setMockPage({
+    href: 'https://www.linkedin.com/jobs/view/999000111',
+    hostname: 'www.linkedin.com',
+    pathname: '/jobs/view/999000111',
+    title: 'Mystery Listing',
+    bodyText: [
+      'United States | 5 minutes ago | 3 applicants',
+      'About the job'
+    ].join('\n')
+  });
+
+  const result = captureRecentJobPostings();
+  assert(result.ok === true, 'Expected recent postings detail fallback to be supported even without an identifiable company.');
+  assert(result.listings.length === 1, `Expected the qualifying-age detail listing to still be reported, got ${result.listings.length}.`);
+  assert(result.listings[0].company === '', `Expected a blank company rather than a guess, got ${result.listings[0].company}.`);
+  assert(result.listings[0].companySource === 'missing', 'Expected companySource to be missing.');
+  assert(result.listings[0].postedText === '5 minutes ago', `Expected 5 minutes ago, got ${result.listings[0].postedText}.`);
 }
 
 function runRecentPostingsUnsupportedPageTest() {
@@ -402,7 +566,11 @@ runSalaryAbsentDoesNotUseUnrelatedHeaderSalaryTest();
 runMarkdownDescriptionDomTest();
 runUnsupportedPageTest();
 runRecentPostingsSyntheticCardsTest();
+runRecentPostingsIsInjectionSafeTest();
+runRecentPostingsWholePageFallbackTest();
+runRecentPostingsWholePageFallbackEchoDedupTest();
 runRecentPostingsDetailFallbackTest();
+runRecentPostingsDetailFallbackMissingCompanyTest();
 runRecentPostingsUnsupportedPageTest();
 runHtmlFixtureReferenceChecks();
 

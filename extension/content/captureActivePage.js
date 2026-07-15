@@ -588,101 +588,62 @@ export function captureRecentJobPostings() {
     return minutes !== null && minutes <= 120 ? text : '';
   }
 
-  function isUiNoise(line) {
-    const lower = normalizeLine(line).toLowerCase();
-    return lower === 'save'
-      || lower === 'apply'
-      || lower === 'easy apply'
-      || lower === 'promoted'
-      || lower === 'view job'
-      || lower === 'jobs'
-      || lower === 'home'
-      || lower === 'messaging'
-      || lower === 'notifications'
-      || lower === '·'
-      || lower === '•'
-      || lower.startsWith('company logo for')
-      || lower.includes('applicant')
-      || lower.includes('clicked apply')
-      || lower.includes('actively reviewing')
-      || lower.includes('be an early applicant')
-      || lower.includes('early applicant')
-      || /\b(alumni|alumnus|alumna|alumnae)\b.*\bworks? here\b/.test(lower)
-      || /\b\d+\s+(?:school\s+)?(?:alumni|people|employees|connections)\b.*\bworks? here\b/.test(lower)
-      || /\bconnections?\s+works? here\b/.test(lower);
-  }
-
-  function isLikelyLocationLine(line) {
-    const text = normalizeLine(line);
-    if (!text) {
-      return false;
-    }
-
-    return /\b(remote|hybrid|on-site|onsite|on site)\b/i.test(text)
-      || /\([^)]+\b(remote|hybrid|on-site|onsite|on site)\b[^)]*\)/i.test(text)
-      || /,\s*[A-Z]{2}\b/.test(text)
-      || /\bUnited States\b/i.test(text)
-      || /\bGreater .+ Area\b/i.test(text);
-  }
-
-  function isLikelyBenefitLine(line) {
-    const lower = normalizeLine(line).toLowerCase();
-    return /\b(401\(k\)|401k|benefit|benefits|vision|dental|medical|health insurance|life insurance|paid time off|pto|equity|stock)\b/.test(lower)
-      || /\+\d+\s+benefits?\b/.test(lower);
-  }
-
-  function isCompanyCandidate(line) {
-    const text = normalizeLine(line);
-    return Boolean(text)
-      && !recentAgeText(text)
-      && !isUiNoise(text)
-      && !isLikelyLocationLine(text)
-      && !isLikelyBenefitLine(text)
-      && !/^\$/.test(text);
-  }
-
   function nodeText(node) {
     return normalizeLine(node?.innerText || node?.textContent || '');
   }
 
-  function queryText(root, selectors) {
-    for (const selector of selectors) {
-      const node = root?.querySelector?.(selector);
-      const text = nodeText(node);
-      if (isCompanyCandidate(text)) {
-        return text;
-      }
-    }
-    return '';
+  function companyNameFromAriaLabel(value) {
+    const match = normalizeLine(value).match(/^Company,\s*(.+?)\.?$/i);
+    return match ? normalizeLine(match[1]) : '';
   }
 
-  function previousCompanyLine(lines, ageIndex) {
-    const previousLines = lines.slice(Math.max(0, ageIndex - 7), ageIndex);
-    let boundaryIndex = -1;
-    for (let index = previousLines.length - 1; index >= 0; index -= 1) {
-      const line = previousLines[index];
-      if (isUiNoise(line) || isLikelyLocationLine(line) || isLikelyBenefitLine(line) || /^\$/.test(line)) {
-        boundaryIndex = index;
-        break;
-      }
-    }
-
-    if (boundaryIndex >= 0) {
-      const beforeBoundary = previousLines.slice(0, boundaryIndex).filter(isCompanyCandidate);
-      return beforeBoundary[beforeBoundary.length - 1] || '';
-    }
-
-    const candidates = previousLines.filter(isCompanyCandidate);
-    if (candidates.length < 2) {
-      return '';
-    }
-    if (isLikelyLocationLine(lines[ageIndex])) {
-      return candidates[0] || '';
-    }
-
-    return candidates[candidates.length - 1] || '';
+  function accessibleCompanyName(node) {
+    const ariaLabel = typeof node?.getAttribute === 'function' ? node.getAttribute('aria-label') : '';
+    const fromAriaLabel = companyNameFromAriaLabel(ariaLabel);
+    return fromAriaLabel || nodeText(node);
   }
 
+  function findCompanyLinkNodes(root) {
+    if (typeof root?.querySelectorAll === 'function') {
+      return Array.from(root.querySelectorAll('a[href*="/company/"]'));
+    }
+    const single = typeof root?.querySelector === 'function' ? root.querySelector('a[href*="/company/"]') : null;
+    return single ? [single] : [];
+  }
+
+  // Company identity is only ever accepted from an explicit LinkedIn identity
+  // signal (an accessible "Company, X." label, or a link into a company's
+  // profile page). Free-text proximity guessing was removed because LinkedIn
+  // card chrome (save state, social proof, benefits, location) is an
+  // unbounded vocabulary that a denylist can never fully cover; an
+  // unrecognized listing is omitted rather than guessed.
+  function extractCompanyIdentity(root) {
+    const labelNode = typeof root?.querySelector === 'function' ? root.querySelector('[aria-label^="Company,"]') : null;
+    const labelName = labelNode ? companyNameFromAriaLabel(labelNode.getAttribute?.('aria-label') || '') : '';
+    if (labelName) {
+      return { company: labelName, companySource: 'aria-label' };
+    }
+
+    const linkNames = findCompanyLinkNodes(root)
+      .map(accessibleCompanyName)
+      .filter(Boolean);
+    const uniqueLinkNames = Array.from(new Set(linkNames.map((name) => normalizeLine(name))));
+    if (uniqueLinkNames.length === 1) {
+      return { company: uniqueLinkNames[0], companySource: 'company-link' };
+    }
+
+    return { company: '', companySource: 'missing' };
+  }
+
+  // A qualifying age is a strict, well-tested signal on its own
+  // (`recentAgeText` requires a bounded "N minute(s)/hour(s) ago" pattern).
+  // A listing whose age qualifies must never be dropped just because its
+  // company could not be confidently identified — that would silently hide
+  // real recent postings, which is a worse outcome for this feature than
+  // showing the posting with its company left blank (the popup already
+  // renders a blank company as "Unknown company"). Company confidence only
+  // ever affects the `company` / `companySource` fields, never whether the
+  // listing is returned at all.
   function extractFromBlock(root) {
     const lines = visibleLines(root?.innerText || root?.textContent || '');
     const ageIndex = lines.findIndex((line) => Boolean(recentAgeText(line)));
@@ -691,18 +652,96 @@ export function captureRecentJobPostings() {
     }
 
     const postedText = recentAgeText(lines[ageIndex]);
-    const company = queryText(root, [
-      '.job-card-container__primary-description',
-      '.job-card-container__company-name',
-      '[data-testid*="company"]',
-      '[aria-label*="Company"]'
-    ]) || previousCompanyLine(lines, ageIndex);
+    const identity = extractCompanyIdentity(root);
 
-    if (!company || !postedText) {
+    return { company: identity.company, postedText, companySource: identity.companySource };
+  }
+
+  function isLikelyMetadataLine(line) {
+    return /(?:·|Â·|[|])/.test(line) && /ago|yesterday|applicant|clicked apply|reposted|posted/i.test(line);
+  }
+
+  function splitMetadataParts(line) {
+    return line.split(/\s*(?:·|Â·|[|])\s*/).map(normalizeLine).filter(Boolean);
+  }
+
+  // This function is injected into the page on its own via
+  // `chrome.scripting.executeScript({ func: captureRecentJobPostings })`,
+  // which serializes and runs only this one function's body — it does NOT
+  // carry along other top-level functions from this module, including
+  // `captureActivePage`. Calling `captureActivePage()` here throws a
+  // ReferenceError in the real extension even though it works in Node
+  // tests (which import both from the same module scope). That bug shipped
+  // in 0.0.13.6-0.0.13.9 and made every fallback-path call fail silently,
+  // which is why 0.0.13.9's diagnostics never even ran. This is a small,
+  // deliberately duplicated re-implementation of just the identity-line
+  // parsing `parseHeaderFields` in `captureActivePage` already does, kept
+  // self-contained on purpose. Do not replace this with a call back into
+  // `captureActivePage`.
+  function detailPageListing() {
+    const lines = visibleLines(document.body?.innerText || '');
+    const aboutIndex = lines.findIndex((line) => /^About the job$/i.test(line));
+    const headerLines = aboutIndex >= 0 ? lines.slice(0, aboutIndex) : lines.slice(0, 30);
+    const firstMetaIndex = headerLines.findIndex(isLikelyMetadataLine);
+    if (firstMetaIndex < 0) {
       return null;
     }
 
-    return { company, postedText };
+    const metaParts = splitMetadataParts(headerLines[firstMetaIndex]);
+    const postedPart = metaParts.length >= 2 ? metaParts[1] : metaParts[0];
+    const postedText = recentAgeText(postedPart || headerLines[firstMetaIndex]);
+    if (!postedText) {
+      return null;
+    }
+
+    const beforeMeta = headerLines.slice(Math.max(0, firstMetaIndex - 2), firstMetaIndex);
+    const company = normalizeLine(beforeMeta[0] || '');
+    return { company, postedText, companySource: company ? 'detail-page' : 'missing' };
+  }
+
+  // Card-boundary selectors are guesses (see DevCycle013.md) and frequently
+  // match nothing against LinkedIn's real, hashed-class markup. When that
+  // happens, the scan must not collapse to a single listing (or none) —
+  // every qualifying age anywhere on the page is still a real posting the
+  // user asked to see. This scans the whole flattened page text for every
+  // qualifying age and reports each as an unresolved-company listing,
+  // skipping the one occurrence already attributed to `detailPageListing()`
+  // (if any) so the same posting isn't reported twice.
+  //
+  // LinkedIn commonly renders one posting's age twice back-to-back: a
+  // visible "Posted N ago" span plus a duplicate `aria-hidden="true"` span
+  // carrying the bare "N ago" text for accessibility (confirmed in the
+  // saved fixtures, e.g. `<span>Posted 3 hours ago</span><span
+  // aria-hidden="true">3 hours ago</span>`). `innerText` flattens both into
+  // separate lines. Two qualifying age matches on immediately consecutive
+  // lines with the same normalized age are that echo, not two postings.
+  function bodyTextAgeListings(bodyText, skipPostedTextOnce) {
+    const lines = visibleLines(bodyText);
+    const matches = [];
+    let skipped = !skipPostedTextOnce;
+    let lastMatchedIndex = -2;
+    let lastMinutesKey = null;
+    for (let index = 0; index < lines.length; index += 1) {
+      const postedText = recentAgeText(lines[index]);
+      if (!postedText) {
+        continue;
+      }
+
+      const minutesKey = normalizePostedKey(postedText);
+      const isAdjacentEcho = index === lastMatchedIndex + 1 && minutesKey === lastMinutesKey;
+      lastMatchedIndex = index;
+      lastMinutesKey = minutesKey;
+      if (isAdjacentEcho) {
+        continue;
+      }
+
+      if (!skipped && postedText === skipPostedTextOnce) {
+        skipped = true;
+        continue;
+      }
+      matches.push({ company: '', postedText, companySource: 'missing' });
+    }
+    return matches;
   }
 
   function candidateBlocks(doc) {
@@ -729,22 +768,6 @@ export function captureRecentJobPostings() {
     return blocks;
   }
 
-  function extractFromBodyText(bodyText) {
-    const lines = visibleLines(bodyText);
-    const matches = [];
-    for (let index = 0; index < lines.length; index += 1) {
-      const postedText = recentAgeText(lines[index]);
-      if (!postedText) {
-        continue;
-      }
-      const company = previousCompanyLine(lines, index);
-      if (company) {
-        matches.push({ company, postedText });
-      }
-    }
-    return matches;
-  }
-
   function normalizePostedKey(postedText) {
     const minutes = postingAgeMinutes(postedText);
     return minutes === null ? normalizeLine(postedText).toLowerCase() : String(minutes);
@@ -753,7 +776,13 @@ export function captureRecentJobPostings() {
   function uniqueListings(listings) {
     const seen = new Set();
     return listings.filter((listing) => {
-      const key = `${normalizeLine(listing.company).toLowerCase()}|${normalizePostedKey(listing.postedText)}`;
+      const company = normalizeLine(listing.company).toLowerCase();
+      if (!company) {
+        // Two listings with no identified company can't be confirmed as the
+        // same posting, so neither is treated as a duplicate of the other.
+        return true;
+      }
+      const key = `${company}|${normalizePostedKey(listing.postedText)}`;
       if (seen.has(key)) {
         return false;
       }
@@ -779,13 +808,39 @@ export function captureRecentJobPostings() {
   const blockListings = candidateBlocks(document)
     .map(extractFromBlock)
     .filter(Boolean);
-  const listings = uniqueListings(blockListings.length ? blockListings : extractFromBodyText(document.body?.innerText || ''));
+
+  let fallbackListings = [];
+  if (!blockListings.length) {
+    const detailListing = detailPageListing();
+    const bodyListings = bodyTextAgeListings(document.body?.innerText || '', detailListing?.postedText);
+    fallbackListings = detailListing ? [detailListing, ...bodyListings] : bodyListings;
+  }
+
+  const listings = uniqueListings(blockListings.length ? blockListings : fallbackListings);
+
+  // Every prior fix to this scan was verified only against synthetic mocks
+  // or saved fixtures that turned out not to represent a real multi-card
+  // search-results page (see DevCycle013.md). Surface what the scan
+  // actually saw on the real page (not just when it finds nothing) so the
+  // next fix — specifically, verifying candidateBlocks() against real
+  // per-card markup — can be based on real evidence instead of a guess.
+  const debug = (() => {
+    const bodyText = document.body?.innerText || '';
+    const ageLines = visibleLines(bodyText).filter((line) => Boolean(recentAgeText(line)));
+    return {
+      blockCount: candidateBlocks(document).length,
+      ageLineCount: ageLines.length,
+      sampleAgeLines: ageLines.slice(0, 5),
+      detailPageListingFound: Boolean(detailPageListing())
+    };
+  })();
 
   return {
     ok: true,
     url,
     pageTitle,
-    listings
+    listings,
+    debug
   };
 }
 

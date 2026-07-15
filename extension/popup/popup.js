@@ -89,13 +89,20 @@ async function scanRecentPostings() {
       setRecentPostingsState('unsupported', result.message || 'Open a LinkedIn jobs page to check recent postings.');
       return;
     }
+    if (result.debug) {
+      console.debug('[recent-postings-debug]', result.debug);
+    }
     const listings = Array.isArray(result.listings) ? result.listings : [];
     if (listings.length === 0) {
-      setRecentPostingsState('empty', 'No visible postings from the last two hours.');
+      const debugSuffix = result.debug
+        ? ` (debug: ${result.debug.blockCount} card matches, ${result.debug.ageLineCount} age-text lines on page)`
+        : '';
+      setRecentPostingsState('empty', `No visible postings from the last two hours.${debugSuffix}`);
       return;
     }
     const noun = listings.length === 1 ? 'posting' : 'postings';
-    setRecentPostingsState('ready', `${listings.length} recent ${noun} found.`, listings);
+    const debugSuffix = result.debug ? ` (${result.debug.blockCount} card matches)` : '';
+    setRecentPostingsState('ready', `${listings.length} recent ${noun} found.${debugSuffix}`, listings);
   } catch (error) {
     setRecentPostingsState('error', error.message || String(error));
   }
