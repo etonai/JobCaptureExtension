@@ -1,6 +1,6 @@
 ﻿# DevCycle 013: Recent Job Posting Spotlight
 
-**Status:** Work Complete
+**Status:** VERIFIED
 **Start Date:** 2026-07-15
 **Target Completion:** 2026-07-15
 **Focus:** Show a popup summary of companies with LinkedIn listings posted within the last two hours.
@@ -127,15 +127,19 @@ Adjust the exact commands during implementation if new test files are added.
 
 1. **Should `Reposted 1 hour ago` count as a recent listing?**
    Recommendation: yes. LinkedIn surfaces reposted listings as fresh opportunities, and the user goal is to find postings with very recent activity.
+YES
 
 2. **Should exactly `2 hours ago` be included?**
    Recommendation: yes. The requested threshold explicitly includes listings `2 hours` old.
+YES
 
 3. **Should the popup scan job-search result pages, individual job-detail pages, or both?**
    Recommendation: support visible search/listing pages first, and include the current individual job page when its captured `postedText` is recent. This keeps the feature useful in both common LinkedIn browsing modes.
+USE RECOMMENDATION
 
 4. **Should duplicate companies be collapsed?**
    Recommendation: no for the first implementation. If a company has multiple fresh listings, each visible listing can be useful. If the page only exposes company and age without a unique title, preserve the visible order and avoid over-deduping.
+NO
 
 ---
 
