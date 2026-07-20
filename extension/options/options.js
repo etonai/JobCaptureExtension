@@ -8,6 +8,11 @@ import {
 } from '../shared/projectFolderStore.js';
 import { clearPriorCompanyCache, refreshPriorCompanyCache } from '../shared/priorCompanyCache.js';
 import { initializeProjectStructure } from '../shared/saveListing.js';
+import {
+  loadRecentPostingsAgeSetting,
+  recentPostingsAgeOptions,
+  saveRecentPostingsAgeSetting
+} from '../shared/recentPostingsSettings.js';
 
 const elements = {
   apiStatus: document.querySelector('#apiStatus'),
@@ -17,7 +22,9 @@ const elements = {
   chooseFolderButton: document.querySelector('#chooseFolderButton'),
   validateButton: document.querySelector('#validateButton'),
   forgetFolderButton: document.querySelector('#forgetFolderButton'),
-  log: document.querySelector('#log')
+  log: document.querySelector('#log'),
+  recentPostingsAgeGroup: document.querySelector('#recentPostingsAgeGroup'),
+  recentPostingsAgeStatus: document.querySelector('#recentPostingsAgeStatus')
 };
 
 function timestamp() {
@@ -91,11 +98,58 @@ elements.chooseFolderButton.addEventListener('click', () => runAction('choose pr
 elements.validateButton.addEventListener('click', () => runAction('validate project structure', validateStructure));
 elements.forgetFolderButton.addEventListener('click', () => runAction('forget project folder', forgetFolder));
 
+function buildRecentPostingsAgeGroup(selectedValue) {
+  elements.recentPostingsAgeGroup.querySelectorAll('.radio-option').forEach((node) => node.remove());
+
+  for (const option of recentPostingsAgeOptions()) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'radio-option';
+
+    const input = document.createElement('input');
+    input.type = 'radio';
+    input.name = 'recentPostingsAge';
+    input.id = `recentPostingsAge_${option.value}`;
+    input.value = option.value;
+    input.checked = option.value === selectedValue;
+    input.addEventListener('change', () => {
+      if (input.checked) {
+        selectRecentPostingsAge(option.value);
+      }
+    });
+
+    const label = document.createElement('label');
+    label.setAttribute('for', input.id);
+    label.textContent = option.label;
+
+    wrapper.append(input, label);
+    elements.recentPostingsAgeGroup.append(wrapper);
+  }
+}
+
+async function selectRecentPostingsAge(value) {
+  elements.recentPostingsAgeStatus.textContent = 'Saving...';
+  try {
+    await saveRecentPostingsAgeSetting(value);
+    elements.recentPostingsAgeStatus.textContent = 'Saved.';
+    log('Saved Recent Postings age filter.', value);
+  } catch (error) {
+    elements.recentPostingsAgeStatus.textContent = 'Failed to save preference.';
+    log('Failed to save Recent Postings age filter.', error.message || String(error));
+  }
+}
+
+async function initRecentPostingsAgeGroup() {
+  const selectedValue = await loadRecentPostingsAgeSetting();
+  buildRecentPostingsAgeGroup(selectedValue);
+  elements.recentPostingsAgeStatus.textContent = 'Loaded saved preference.';
+}
+
 async function init() {
   if (!isFileSystemAccessAvailable()) {
     log('File System Access API is unavailable in this browser context.');
   }
   await refreshStatus();
+  await initRecentPostingsAgeGroup();
   log('Options loaded.');
 }
 

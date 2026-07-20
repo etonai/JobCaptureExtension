@@ -548,7 +548,18 @@
 
 
 
-export function captureRecentJobPostings() {
+export function captureRecentJobPostings(ageFilter) {
+  function resolveAgeFilter(value) {
+    const candidate = value && typeof value === 'object' ? value : {};
+    const maxAgeMinutes = Number(candidate.maxAgeMinutes);
+    if (!Number.isFinite(maxAgeMinutes) || maxAgeMinutes <= 0) {
+      return { maxAgeMinutes: 120, inclusive: true };
+    }
+    return { maxAgeMinutes, inclusive: candidate.inclusive !== false };
+  }
+
+  const filter = resolveAgeFilter(ageFilter);
+
   function normalizeLine(value) {
     return String(value ?? '').replace(/\s+/g, ' ').trim();
   }
@@ -585,7 +596,11 @@ export function captureRecentJobPostings() {
     }
     const text = normalizeLine(match[0]);
     const minutes = postingAgeMinutes(text);
-    return minutes !== null && minutes <= 120 ? text : '';
+    if (minutes === null) {
+      return '';
+    }
+    const withinLimit = filter.inclusive ? minutes <= filter.maxAgeMinutes : minutes < filter.maxAgeMinutes;
+    return withinLimit ? text : '';
   }
 
   function nodeText(node) {

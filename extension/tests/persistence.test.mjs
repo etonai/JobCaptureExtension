@@ -31,6 +31,15 @@ import {
   reserveListingFilename,
   saveCaptureRecord
 } from '../shared/saveListing.js';
+import {
+  DEFAULT_RECENT_POSTINGS_AGE,
+  RECENT_POSTINGS_AGE_VALUES,
+  getRecentPostingsAgeConfig,
+  isValidRecentPostingsAgeValue,
+  loadRecentPostingsAgeSetting,
+  recentPostingsAgeOptions,
+  saveRecentPostingsAgeSetting
+} from '../shared/recentPostingsSettings.js';
 
 function assert(condition, message) {
   if (!condition) {
@@ -352,6 +361,56 @@ async function runProjectPermissionTests() {
   assert(modes.join('|') === 'query:read|request:read', `Expected read-only permission flow, got ${modes.join('|')}.`);
 }
 
+function fakeChromeStorageLocal() {
+  const store = new Map();
+  return {
+    async get(key) {
+      return { [key]: store.has(key) ? store.get(key) : undefined };
+    },
+    async set(values) {
+      for (const [key, value] of Object.entries(values)) {
+        store.set(key, value);
+      }
+    }
+  };
+}
+
+async function runRecentPostingsSettingsTests() {
+  assert(isValidRecentPostingsAgeValue(RECENT_POSTINGS_AGE_VALUES.TWO_HOURS_OR_LESS), 'Expected two-hours value to be valid.');
+  assert(isValidRecentPostingsAgeValue(RECENT_POSTINGS_AGE_VALUES.ONE_HOUR_OR_LESS), 'Expected one-hour value to be valid.');
+  assert(isValidRecentPostingsAgeValue(RECENT_POSTINGS_AGE_VALUES.LESS_THAN_ONE_HOUR), 'Expected less-than-one-hour value to be valid.');
+  assert(!isValidRecentPostingsAgeValue('unknownValue'), 'Expected unrecognized value to be invalid.');
+  assert(recentPostingsAgeOptions().length === 3, 'Expected exactly three Recent Postings age options.');
+
+  const twoHours = getRecentPostingsAgeConfig(RECENT_POSTINGS_AGE_VALUES.TWO_HOURS_OR_LESS);
+  assert(twoHours.maxAgeMinutes === 120 && twoHours.inclusive === true, 'Expected 2-hours-or-less to be 120 minutes inclusive.');
+  const oneHour = getRecentPostingsAgeConfig(RECENT_POSTINGS_AGE_VALUES.ONE_HOUR_OR_LESS);
+  assert(oneHour.maxAgeMinutes === 60 && oneHour.inclusive === true, 'Expected 1-hour-or-less to be 60 minutes inclusive.');
+  const lessThanOneHour = getRecentPostingsAgeConfig(RECENT_POSTINGS_AGE_VALUES.LESS_THAN_ONE_HOUR);
+  assert(lessThanOneHour.maxAgeMinutes === 60 && lessThanOneHour.inclusive === false, 'Expected less-than-1-hour to be 60 minutes exclusive.');
+  assert(getRecentPostingsAgeConfig('unknownValue').value === DEFAULT_RECENT_POSTINGS_AGE, 'Expected unrecognized config lookup to default to 2-hours-or-less.');
+
+  delete globalThis.chrome;
+  const defaultedValue = await loadRecentPostingsAgeSetting();
+  assert(defaultedValue === DEFAULT_RECENT_POSTINGS_AGE, `Expected default when chrome.storage is unavailable, got ${defaultedValue}.`);
+
+  globalThis.chrome = { storage: { local: fakeChromeStorageLocal() } };
+  const initialValue = await loadRecentPostingsAgeSetting();
+  assert(initialValue === DEFAULT_RECENT_POSTINGS_AGE, `Expected default with no saved value, got ${initialValue}.`);
+
+  const saved = await saveRecentPostingsAgeSetting(RECENT_POSTINGS_AGE_VALUES.LESS_THAN_ONE_HOUR);
+  assert(saved === RECENT_POSTINGS_AGE_VALUES.LESS_THAN_ONE_HOUR, 'Expected save to return the validated value.');
+  const persistedValue = await loadRecentPostingsAgeSetting();
+  assert(persistedValue === RECENT_POSTINGS_AGE_VALUES.LESS_THAN_ONE_HOUR, `Expected persisted value to be restored, got ${persistedValue}.`);
+
+  const invalidSaved = await saveRecentPostingsAgeSetting('unknownValue');
+  assert(invalidSaved === DEFAULT_RECENT_POSTINGS_AGE, 'Expected an invalid saved value to fall back to the default.');
+  const afterInvalidSave = await loadRecentPostingsAgeSetting();
+  assert(afterInvalidSave === DEFAULT_RECENT_POSTINGS_AGE, 'Expected an invalid saved value to persist as the default.');
+
+  delete globalThis.chrome;
+}
+
 runCsvTests();
 runFilenameTests();
 runPriorCompanyCacheTests();
@@ -359,5 +418,6 @@ await runReservationTests();
 await runProjectPermissionTests();
 await runSaveCaptureRecordTest();
 await runAppendCaptureRecordToCsvTest();
+await runRecentPostingsSettingsTests();
 
 console.log('persistence helper tests passed');

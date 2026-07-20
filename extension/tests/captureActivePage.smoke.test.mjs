@@ -729,6 +729,55 @@ function runRecentPostingsDetailFallbackMissingCompanyTest() {
   assert(result.listings[0].postedText === '5 minutes ago', `Expected 5 minutes ago, got ${result.listings[0].postedText}.`);
 }
 
+function runRecentPostingsAgeFilterBoundaryTest() {
+  const paragraphNodes = [
+    ...listCardParagraphs({ title: 'Fresh Engineer', company: 'FreshCo', location: 'Seattle, WA', age: 'Posted 45 minutes ago' }),
+    ...listCardParagraphs({ title: 'Edge Engineer', company: 'EdgeCo', location: 'Seattle, WA', age: 'Posted 59 minutes ago' }),
+    ...listCardParagraphs({ title: 'Hour Engineer', company: 'HourCo', location: 'Seattle, WA', age: '1 hour ago' }),
+    ...listCardParagraphs({ title: 'TwoHour Engineer', company: 'TwoHourCo', location: 'Seattle, WA', age: 'Reposted 2 hours ago' }),
+    ...listCardParagraphs({ title: 'Stale Engineer', company: 'StaleCo', location: 'Seattle, WA', age: 'Posted 3 hours ago' })
+  ];
+
+  function scan(ageFilter) {
+    setMockPage({
+      href: 'https://www.linkedin.com/jobs/search-results/?keywords=software%20engineer',
+      hostname: 'www.linkedin.com',
+      pathname: '/jobs/search-results/',
+      title: 'Software Engineer Jobs | LinkedIn',
+      bodyText: 'LinkedIn job results',
+      paragraphNodes
+    });
+    return captureRecentJobPostings(ageFilter);
+  }
+
+  // Default (no filter argument): matches the historical fixed 120-minute
+  // inclusive cutoff, so existing callers see no behavior change.
+  const defaultResult = scan(undefined);
+  assert(defaultResult.listings.some((l) => l.company === 'TwoHourCo'), 'Expected default filter to include the 2-hour boundary posting.');
+  assert(!defaultResult.listings.some((l) => l.company === 'StaleCo'), 'Expected default filter to exclude postings older than 2 hours.');
+
+  // 2 hours or less: 120 minutes inclusive.
+  const twoHoursResult = scan({ maxAgeMinutes: 120, inclusive: true });
+  assert(twoHoursResult.listings.some((l) => l.company === 'FreshCo'), 'Expected 2-hours-or-less to include a minute-based posting.');
+  assert(twoHoursResult.listings.some((l) => l.company === 'HourCo'), 'Expected 2-hours-or-less to include 1 hour ago.');
+  assert(twoHoursResult.listings.some((l) => l.company === 'TwoHourCo'), 'Expected 2-hours-or-less to include 2 hours ago.');
+  assert(!twoHoursResult.listings.some((l) => l.company === 'StaleCo'), 'Expected 2-hours-or-less to exclude postings older than 2 hours.');
+
+  // 1 hour or less: 60 minutes inclusive.
+  const oneHourResult = scan({ maxAgeMinutes: 60, inclusive: true });
+  assert(oneHourResult.listings.some((l) => l.company === 'FreshCo'), 'Expected 1-hour-or-less to include a minute-based posting.');
+  assert(oneHourResult.listings.some((l) => l.company === 'HourCo'), 'Expected 1-hour-or-less to include 1 hour ago.');
+  assert(!oneHourResult.listings.some((l) => l.company === 'TwoHourCo'), 'Expected 1-hour-or-less to exclude 2 hours ago.');
+  assert(!oneHourResult.listings.some((l) => l.company === 'StaleCo'), 'Expected 1-hour-or-less to exclude postings older than 2 hours.');
+
+  // Less than 1 hour: 60 minutes exclusive.
+  const lessThanOneHourResult = scan({ maxAgeMinutes: 60, inclusive: false });
+  assert(lessThanOneHourResult.listings.some((l) => l.company === 'FreshCo'), 'Expected less-than-1-hour to include a sub-60-minute posting.');
+  assert(lessThanOneHourResult.listings.some((l) => l.company === 'EdgeCo'), 'Expected less-than-1-hour to include 59 minutes ago.');
+  assert(!lessThanOneHourResult.listings.some((l) => l.company === 'HourCo'), 'Expected less-than-1-hour to exclude exactly 1 hour ago.');
+  assert(!lessThanOneHourResult.listings.some((l) => l.company === 'TwoHourCo'), 'Expected less-than-1-hour to exclude 2 hours ago.');
+}
+
 function runRecentPostingsUnsupportedPageTest() {
   setMockPage({
     href: 'https://example.com/jobs',
@@ -786,6 +835,7 @@ runRecentPostingsWholePageFallbackTest();
 runRecentPostingsWholePageFallbackEchoDedupTest();
 runRecentPostingsDetailFallbackTest();
 runRecentPostingsDetailFallbackMissingCompanyTest();
+runRecentPostingsAgeFilterBoundaryTest();
 runRecentPostingsUnsupportedPageTest();
 runHtmlFixtureReferenceChecks();
 

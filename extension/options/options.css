@@ -134,3 +134,37 @@ pre {
   min-height: 140px;
   max-height: 260px;
 }
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.radio-group {
+  border: 0;
+  margin: 12px 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.radio-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #d8e1ea;
+  border-radius: 6px;
+  background: #f8fafc;
+  padding: 10px;
+}
+
+.radio-option label {
+  color: #17202a;
+  font-weight: 600;
+  cursor: pointer;
+}

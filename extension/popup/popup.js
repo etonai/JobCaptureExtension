@@ -2,6 +2,7 @@ import { captureActivePage, captureRecentJobPostings } from '../content/captureA
 import { ensureProjectReadPermission, getProjectFolderStatus, getStoredProjectFolder } from '../shared/projectFolderStore.js';
 import { findCachedPriorCompanyWarning, findPriorCompanyInCache, refreshPriorCompanyCache } from '../shared/priorCompanyCache.js';
 import { appendCaptureRecordToCsv, OTHER_LISTINGS_CSV_FILENAME, saveCaptureRecord } from '../shared/saveListing.js';
+import { getRecentPostingsAgeConfig, loadRecentPostingsAgeSetting } from '../shared/recentPostingsSettings.js';
 
 const AUTO_CAPTURE_INTENT_KEY = 'popupIntent';
 const AUTO_CAPTURE_INTENT_TTL_MS = 10_000;
@@ -82,10 +83,13 @@ async function scanRecentPostings() {
   setRecentPostingsState('loading', 'Scanning the active LinkedIn tab.');
 
   try {
+    const ageValue = await loadRecentPostingsAgeSetting();
+    const ageConfig = getRecentPostingsAgeConfig(ageValue);
     const tab = await getActiveTab();
     const [injectionResult] = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
-      func: captureRecentJobPostings
+      func: captureRecentJobPostings,
+      args: [{ maxAgeMinutes: ageConfig.maxAgeMinutes, inclusive: ageConfig.inclusive }]
     });
     const result = injectionResult?.result;
     if (!result) {
@@ -103,7 +107,7 @@ async function scanRecentPostings() {
       const debugSuffix = result.debug
         ? ` (debug: ${result.debug.titleParagraphCount} cards, ${result.debug.ageLineCount} age-text lines on page)`
         : '';
-      setRecentPostingsState('empty', `No visible postings from the last two hours.${debugSuffix}`);
+      setRecentPostingsState('empty', `${ageConfig.emptyStateText}${debugSuffix}`);
       return;
     }
     const noun = listings.length === 1 ? 'posting' : 'postings';

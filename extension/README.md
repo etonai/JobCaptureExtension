@@ -21,7 +21,7 @@ Implemented in the current shell:
 - unsupported-page, save-success, save-error, and partial-success states
 - user-entered notes saved to JSON and the CSV `notes` column
 - prior company warning after capture when the company already appears in `old-tracking.txt` or `job-tracking.csv`
-- popup recent-postings summary for visible LinkedIn listings posted within the last two hours; rows sourced from a results-list card are prefixed with the card's position in the left-hand list (e.g. `5 Armada`)
+- popup recent-postings summary for visible LinkedIn listings posted within a user-configurable age (`2 hours or less` by default, or `1 hour or less` / `less than 1 hour` from Options); rows sourced from a results-list card are prefixed with the card's position in the left-hand list (e.g. `5 Armada`)
 
 It does not implement the final editable review UI. The Save action writes the current captured parser result; DevCycle006 will add richer field editing before save.
 
@@ -47,6 +47,7 @@ extension/
     filename.js
     projectFolderStore.js
     priorCompanyCache.js
+    recentPostingsSettings.js
     saveListing.js
   tests/
     captureActivePage.smoke.test.mjs
@@ -100,6 +101,16 @@ Job Search Project/
 
 The CSV uses the locked first-version schema from `doc/planning/ExtensionDesign.md`. User-entered popup notes are saved into the existing `notes` column. Optional `old-tracking.txt` can contain one company per non-empty line for companies applied to before this extension. After capture, the extension checks `old-tracking.txt` first, then existing CSV rows, and warns when the captured company has appeared before. Options validation refreshes a local prior-company cache so shortcut captures can show this warning even when the browser will not allow a filesystem permission prompt from the shortcut-opened popup. Existing CSV files with mismatched headers block CSV append, but the JSON listing, description text file, and description Markdown file remain saved when possible.
 
+## Recent Postings Age Filter
+
+Options has a Recent Postings panel with three mutually exclusive age choices, stored in `chrome.storage.local` and restored when Options reopens:
+
+- `2 hours or less` (default) — includes minute-based postings, `1 hour ago`, and `2 hours ago`
+- `1 hour or less` — includes minute-based postings and `1 hour ago`, excludes anything older
+- `Less than 1 hour` — includes minute-based postings through `59 minutes ago`, excludes `1 hour ago` and older
+
+The popup reads the saved choice before each scan and passes it into the injected `captureRecentJobPostings` function as an argument (`{ maxAgeMinutes, inclusive }`), since the injected function cannot read module-scope settings. A missing or unrecognized stored value, or a storage read failure, falls back to `2 hours or less`. This only changes which postings appear in the popup's Recent Postings list — it does not change the `postedText` captured or saved for an individual job.
+
 ## Local Checks
 
 Run from the repository root:
@@ -113,6 +124,7 @@ node --check extension/shared/csv.js
 node --check extension/shared/filename.js
 node --check extension/shared/projectFolderStore.js
 node --check extension/shared/priorCompanyCache.js
+node --check extension/shared/recentPostingsSettings.js
 node --check extension/shared/saveListing.js
 node extension/tests/captureActivePage.smoke.test.mjs
 node extension/tests/persistence.test.mjs
