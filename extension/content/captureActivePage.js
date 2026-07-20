@@ -1,4 +1,4 @@
-﻿export function captureActivePage() {
+export function captureActivePage() {
   function normalizeLine(value) {
     return String(value ?? '').replace(/\s+/g, ' ').trim();
   }
@@ -549,6 +549,9 @@
 
 
 export function captureRecentJobPostings(ageFilter) {
+  const recentCardAttribute = 'data-job-capture-recent';
+  const recentStyleId = 'job-capture-recent-posting-style';
+
   function resolveAgeFilter(value) {
     const candidate = value && typeof value === 'object' ? value : {};
     const maxAgeMinutes = Number(candidate.maxAgeMinutes);
@@ -621,6 +624,32 @@ export function captureRecentJobPostings(ageFilter) {
 
   function paragraphElements(doc) {
     return typeof doc?.querySelectorAll === 'function' ? Array.from(doc.querySelectorAll('p')) : [];
+  }
+
+  function prepareRecentCardHighlighting(doc) {
+    if (typeof doc?.querySelectorAll === 'function') {
+      for (const element of Array.from(doc.querySelectorAll(`[${recentCardAttribute}]`))) {
+        element.removeAttribute?.(recentCardAttribute);
+      }
+    }
+
+    if (typeof doc?.getElementById !== 'function' || typeof doc?.createElement !== 'function') {
+      return;
+    }
+    let style = doc.getElementById(recentStyleId);
+    if (!style) {
+      style = doc.createElement('style');
+      style.id = recentStyleId;
+      style.textContent = `
+        [${recentCardAttribute}] {
+          background-color: rgba(57, 181, 74, 0.16) !important;
+          box-shadow: inset 4px 0 0 #16883e, inset 0 0 0 1px rgba(22, 136, 62, 0.5) !important;
+          outline: 2px solid rgba(22, 136, 62, 0.72) !important;
+          outline-offset: -2px !important;
+        }
+      `;
+      (doc.head || doc.documentElement)?.appendChild?.(style);
+    }
   }
 
   // One of LinkedIn's (at least two) live markup variants renders a
@@ -710,6 +739,47 @@ export function captureRecentJobPostings(ageFilter) {
     });
   }
 
+  function normalizedTitleCandidates(paragraph) {
+    return [nodeText(paragraph), ...firstTwoSpanTexts(paragraph)]
+      .map(stripVerifiedBadge)
+      .map((text) => text.replace(/^Selected,\s*/i, ''))
+      .filter(Boolean);
+  }
+
+  // Generated LinkedIn classes are unstable, but every observed result card
+  // keeps its title paragraph and its matching "Dismiss TITLE job" button in
+  // one card wrapper. The first ancestor containing that exact button is the
+  // narrowest evidence-backed card root. If no such ancestor exists, fail
+  // safely by leaving the card unmarked rather than styling a neighboring
+  // card or the whole results list.
+  function recentCardRoot(titleParagraph) {
+    const titles = new Set(normalizedTitleCandidates(titleParagraph));
+    let ancestor = titleParagraph?.parentElement || null;
+    let levels = 0;
+    while (ancestor && levels < 12) {
+      if (typeof ancestor.querySelectorAll === 'function') {
+        const buttons = Array.from(ancestor.querySelectorAll('button[aria-label]'));
+        const hasMatchingDismissButton = buttons.some((button) => {
+          const label = normalizeLine(button.getAttribute?.('aria-label') || '');
+          const match = label.match(/^Dismiss (.+) job$/);
+          return Boolean(match && titles.has(match[1]));
+        });
+        if (hasMatchingDismissButton) {
+          return ancestor;
+        }
+      }
+      ancestor = ancestor.parentElement || null;
+      levels += 1;
+    }
+    return null;
+  }
+
+  function markRecentCard(titleParagraph) {
+    const card = recentCardRoot(titleParagraph);
+    card?.setAttribute?.(recentCardAttribute, '');
+    return Boolean(card);
+  }
+
   function isLocationText(text) {
     return /,\s*[A-Z]{2}\b/.test(text)
       || /\b(remote|hybrid|on-site|onsite|on site)\b/i.test(text)
@@ -761,6 +831,7 @@ export function captureRecentJobPostings(ageFilter) {
 
       const candidate = normalizeLine(nodeText(paragraphs[start + 1]));
       const company = (!candidate || isLocationText(candidate) || recentAgeText(candidate)) ? '' : candidate;
+      markRecentCard(paragraphs[start]);
       // listPosition is this card's 1-based ordinal among ALL detected cards
       // (titleIndexes covers every card, recent or not), so the number matches
       // what the user sees counting down the left-hand list. If a card's title
@@ -906,6 +977,8 @@ export function captureRecentJobPostings(ageFilter) {
       listings: []
     };
   }
+
+  prepareRecentCardHighlighting(document);
 
   // Primary path: the currently-open job (from its detail-pane header) plus
   // every results-list card, each read positionally from the verified

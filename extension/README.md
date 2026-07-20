@@ -111,6 +111,8 @@ Options has a Recent Postings panel with three mutually exclusive age choices, s
 
 The popup reads the saved choice before each scan and passes it into the injected `captureRecentJobPostings` function as an argument (`{ maxAgeMinutes, inclusive }`), since the injected function cannot read module-scope settings. A missing or unrecognized stored value, or a storage read failure, falls back to `2 hours or less`. This only changes which postings appear in the popup's Recent Postings list — it does not change the `postedText` captured or saved for an individual job.
 
+Each popup scan also highlights the matching cards in LinkedIn's left-hand results list with a green edge, outline, and light green tint. The scan removes its previous markers before applying the current filter, so changing the age choice or rescanning updated results does not leave stale highlights. Highlights are temporary page styling only: they do not change captured data, and LinkedIn may remove them if it re-renders a card until the next popup scan.
+
 ## Local Checks
 
 Run from the repository root:

@@ -1,4 +1,4 @@
-﻿import { readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { captureActivePage, captureRecentJobPostings } from '../content/captureActivePage.js';
 
@@ -15,13 +15,43 @@ function elementNode(tagName, attrs = {}, children = []) {
     parentElement: null,
     nextElementSibling: null,
     get textContent() {
-      return this.childNodes.map((child) => child.textContent || '').join('');
+      return this._textContent ?? this.childNodes.map((child) => child.textContent || '').join('');
+    },
+    set textContent(value) {
+      this._textContent = String(value);
     },
     get innerText() {
       return this.textContent;
     },
     getAttribute(name) {
       return this.attrs[name] || '';
+    },
+    setAttribute(name, value) {
+      this.attrs[name] = String(value);
+    },
+    removeAttribute(name) {
+      delete this.attrs[name];
+    },
+    appendChild(child) {
+      this.childNodes.push(child);
+      if (child?.nodeType === 1) child.parentElement = this;
+      return child;
+    },
+    querySelectorAll(selector) {
+      const matches = [];
+      const stack = [...this.childNodes];
+      while (stack.length) {
+        const current = stack.shift();
+        if (current?.nodeType !== 1) continue;
+        if (selector === 'button[aria-label]' && current.tagName === 'BUTTON' && current.attrs['aria-label']) {
+          matches.push(current);
+        }
+        if (selector === '[data-job-capture-recent]' && Object.hasOwn(current.attrs || {}, 'data-job-capture-recent')) {
+          matches.push(current);
+        }
+        stack.unshift(...current.childNodes);
+      }
+      return matches;
     },
     querySelector(selector) {
       const stack = [...this.childNodes];
@@ -70,13 +100,21 @@ function linkedInAboutJobDom(children) {
   const container = elementNode('div', { componentkey: 'JobDetails_AboutTheJob_123' }, [heading, description]);
   return { heading, container };
 }
-function setMockPage({ href, hostname, pathname, title, bodyText, headings = [], domHeadings = [], paragraphNodes = [], buttonNodes = [] }) {
+function setMockPage({ href, hostname, pathname, title, bodyText, headings = [], domHeadings = [], paragraphNodes = [], buttonNodes = [], domRoots = [] }) {
   globalThis.window = {
     location: { href, hostname, pathname }
   };
+  const head = elementNode('head');
   globalThis.document = {
     title,
+    head,
     body: { innerText: bodyText },
+    createElement(tagName) {
+      return elementNode(tagName);
+    },
+    getElementById(id) {
+      return head.childNodes.find((node) => node.id === id) || null;
+    },
     querySelectorAll(selector) {
       if (selector === 'h1, h2, h3, h4') {
         return domHeadings;
@@ -89,6 +127,12 @@ function setMockPage({ href, hostname, pathname, title, bodyText, headings = [],
       }
       if (selector === 'button[aria-label]') {
         return buttonNodes;
+      }
+      if (selector === '[data-job-capture-recent]') {
+        return domRoots.flatMap((root) => {
+          const matches = root.querySelectorAll(selector);
+          return Object.hasOwn(root.attrs, 'data-job-capture-recent') ? [root, ...matches] : matches;
+        });
       }
       return [];
     }
@@ -778,6 +822,54 @@ function runRecentPostingsAgeFilterBoundaryTest() {
   assert(!lessThanOneHourResult.listings.some((l) => l.company === 'TwoHourCo'), 'Expected less-than-1-hour to exclude 2 hours ago.');
 }
 
+function runRecentPostingCardHighlightTest() {
+  function card({ title, company, age }) {
+    const titleNode = titleParagraph(title);
+    const companyNode = company === undefined ? null : textParagraph(company);
+    const locationNode = textParagraph('Seattle, WA');
+    const ageNode = ageParagraph(age);
+    const dismissButton = elementNode('button', { 'aria-label': `Dismiss ${title} job` });
+    const paragraphs = [titleNode, ...(companyNode ? [companyNode] : []), locationNode, ageNode];
+    const content = elementNode('div', {}, paragraphs);
+    const root = elementNode('article', {}, [content, dismissButton]);
+    return { root, paragraphs, dismissButton };
+  }
+
+  const fresh = card({ title: 'Fresh Engineer', company: 'FreshCo', age: 'Posted 30 minutes ago' });
+  const duplicateMissingCompany = card({ title: 'Fresh Engineer', age: 'Posted 45 minutes ago' });
+  const older = card({ title: 'Older Engineer', company: 'OlderCo', age: 'Posted 90 minutes ago' });
+  const paragraphNodes = [...fresh.paragraphs, ...duplicateMissingCompany.paragraphs, ...older.paragraphs];
+  const buttonNodes = [fresh.dismissButton, duplicateMissingCompany.dismissButton, older.dismissButton];
+  const domRoots = [fresh.root, duplicateMissingCompany.root, older.root];
+
+  setMockPage({
+    href: 'https://www.linkedin.com/jobs/search-results/?keywords=engineer',
+    hostname: 'www.linkedin.com',
+    pathname: '/jobs/search-results/',
+    title: 'Engineer Jobs | LinkedIn',
+    bodyText: 'LinkedIn job results',
+    paragraphNodes,
+    buttonNodes,
+    domRoots
+  });
+
+  const narrow = captureRecentJobPostings({ maxAgeMinutes: 60, inclusive: true });
+  assert(narrow.listings.some((listing) => listing.company === 'FreshCo'), 'Expected the fresh card to remain in the serialized result.');
+  assert(fresh.root.getAttribute('data-job-capture-recent') === '', 'Expected the fresh card root to receive the extension marker.');
+  assert(Object.hasOwn(duplicateMissingCompany.root.attrs, 'data-job-capture-recent'), 'Expected a duplicate-title card with no company to be marked by its own ancestor relationship.');
+  assert(!Object.hasOwn(older.root.attrs, 'data-job-capture-recent'), 'Expected the non-qualifying card to remain unmarked.');
+  assert(document.head.childNodes.length === 1, 'Expected one injected highlight style element.');
+  assert(document.head.childNodes[0].textContent.includes('inset 4px 0 0'), 'Expected the injected style to include the green edge accent.');
+
+  const wide = captureRecentJobPostings({ maxAgeMinutes: 120, inclusive: true });
+  assert(wide.listings.some((listing) => listing.company === 'OlderCo'), 'Expected widening the filter to include the older card.');
+  assert(Object.hasOwn(older.root.attrs, 'data-job-capture-recent'), 'Expected the wider rescan to mark the older card.');
+  assert(document.head.childNodes.length === 1, 'Expected rescanning to reuse the existing style element.');
+
+  captureRecentJobPostings({ maxAgeMinutes: 60, inclusive: true });
+  assert(!Object.hasOwn(older.root.attrs, 'data-job-capture-recent'), 'Expected a later narrow rescan to remove the stale marker from the older card.');
+  assert(Object.hasOwn(fresh.root.attrs, 'data-job-capture-recent'), 'Expected the qualifying card to be re-marked after cleanup.');
+}
 function runRecentPostingsUnsupportedPageTest() {
   setMockPage({
     href: 'https://example.com/jobs',
@@ -836,6 +928,7 @@ runRecentPostingsWholePageFallbackEchoDedupTest();
 runRecentPostingsDetailFallbackTest();
 runRecentPostingsDetailFallbackMissingCompanyTest();
 runRecentPostingsAgeFilterBoundaryTest();
+runRecentPostingCardHighlightTest();
 runRecentPostingsUnsupportedPageTest();
 runHtmlFixtureReferenceChecks();
 
