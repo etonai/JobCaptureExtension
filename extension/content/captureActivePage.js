@@ -616,13 +616,33 @@ export function captureRecentJobPostings() {
   // other observed variant (the Docusign fixture) renders the title with an
   // EMPTY first span, so this detector alone is not sufficient — see
   // dismissButtonTitles() below for the cross-variant signal.
+  // LinkedIn renders a THIRD title variant for jobs carrying a "Verified
+  // job" badge (observed rendered only in the Nordstrom MHTML fixture; the
+  // same page saved as .html minutes later had every title plain, so cards
+  // move in and out of this rendering dynamically): the first span reads
+  // "TITLE (Verified job)" and the aria-hidden span reads "TITLE" plus a
+  // badge icon. Stripping that suffix before any comparison restores both
+  // detectors below. The suffix is English-locale microcopy; if LinkedIn
+  // localizes it, the title degrades to undetected (fail-soft: a missed
+  // card, never a wrong company).
+  function stripVerifiedBadge(text) {
+    return normalizeLine(text).replace(/\s*\(verified job\)$/i, '');
+  }
+
+  function firstTwoSpanTexts(paragraph) {
+    return elementChildren(paragraph)
+      .filter((child) => tagNameOf(child) === 'span')
+      .slice(0, 2)
+      .map((span) => nodeText(span));
+  }
+
   function isEchoTitleParagraph(paragraph) {
-    const spans = elementChildren(paragraph).filter((child) => tagNameOf(child) === 'span');
+    const spans = firstTwoSpanTexts(paragraph);
     if (spans.length < 2) {
       return false;
     }
-    const first = nodeText(spans[0]);
-    const second = nodeText(spans[1]);
+    const first = stripVerifiedBadge(spans[0]);
+    const second = stripVerifiedBadge(spans[1]);
     // A job title never reads as a posting age. When an age happens to render
     // as two identical spans (a bare "N ago" with no "Posted" prefix) it must
     // not be mistaken for a title, or it would split one card into two.
@@ -653,18 +673,26 @@ export function captureRecentJobPostings() {
     return titles;
   }
 
-  // A paragraph is a card title if it matches either variant's signal: the
-  // echo-span structure (Starbucks variant), or text equal to a title taken
-  // from a dismiss button on the same page (works in both variants,
-  // including Docusign's empty-first-span title rendering). Text matching
-  // also handles duplicate titles across cards, since membership in the
-  // title set doesn't depend on which card the text came from.
+  // A paragraph is a card title if it matches any variant's signal: the
+  // echo-span structure (Starbucks variant, including its verified-badge
+  // form), or text equal to a title taken from a dismiss button on the same
+  // page (works in the other variants, including Docusign's empty-first-span
+  // rendering). The dismiss-title comparison must also consider the first
+  // two spans individually: on a verified-badge card the paragraph's
+  // concatenated text is "TITLE (Verified job) TITLE", which never equals
+  // the dismiss label's bare "TITLE", but each span does after the badge
+  // suffix is stripped. Text matching also handles duplicate titles across
+  // cards, since membership in the title set doesn't depend on which card
+  // the text came from.
   function isCardTitleParagraph(paragraph, dismissTitles) {
     if (isEchoTitleParagraph(paragraph)) {
       return true;
     }
-    const text = nodeText(paragraph);
-    return Boolean(text) && !recentAgeText(text) && dismissTitles.has(text);
+    const candidates = [nodeText(paragraph), ...firstTwoSpanTexts(paragraph)];
+    return candidates.some((candidate) => {
+      const text = stripVerifiedBadge(candidate);
+      return Boolean(text) && !recentAgeText(text) && dismissTitles.has(text);
+    });
   }
 
   function isLocationText(text) {
@@ -718,7 +746,13 @@ export function captureRecentJobPostings() {
 
       const candidate = normalizeLine(nodeText(paragraphs[start + 1]));
       const company = (!candidate || isLocationText(candidate) || recentAgeText(candidate)) ? '' : candidate;
-      listings.push({ company, postedText, companySource: company ? 'list-card' : 'missing' });
+      // listPosition is this card's 1-based ordinal among ALL detected cards
+      // (titleIndexes covers every card, recent or not), so the number matches
+      // what the user sees counting down the left-hand list. If a card's title
+      // evades both detectors, later positions shift by one — a fail-soft
+      // miscount, never a wrong company. Positions count DOM-present cards at
+      // scan time, so a lazily-rendered tail of the list is not included.
+      listings.push({ company, postedText, companySource: company ? 'list-card' : 'missing', listPosition: t + 1 });
     }
     return listings;
   }
@@ -816,21 +850,32 @@ export function captureRecentJobPostings() {
   }
 
   function uniqueListings(listings) {
-    const seen = new Set();
-    return listings.filter((listing) => {
+    const keptByKey = new Map();
+    const result = [];
+    for (const listing of listings) {
       const company = normalizeLine(listing.company).toLowerCase();
       if (!company) {
         // Two listings with no identified company can't be confirmed as the
         // same posting, so neither is treated as a duplicate of the other.
-        return true;
+        result.push(listing);
+        continue;
       }
       const key = `${company}|${normalizePostedKey(listing.postedText)}`;
-      if (seen.has(key)) {
-        return false;
+      const kept = keptByKey.get(key);
+      if (!kept) {
+        keptByKey.set(key, listing);
+        result.push(listing);
+        continue;
       }
-      seen.add(key);
-      return true;
-    });
+      // The detail-pane listing is placed before the card listings, so when
+      // the open job's own list card dedups against it, the surviving row
+      // would otherwise lose the card's list position. Merge it across so the
+      // popup can still show where the posting sits in the left-hand list.
+      if (kept.listPosition == null && listing.listPosition != null) {
+        kept.listPosition = listing.listPosition;
+      }
+    }
+    return result;
   }
 
   const url = window.location.href;
@@ -875,10 +920,20 @@ export function captureRecentJobPostings() {
   const bodyText = document.body?.innerText || '';
   const ageLines = visibleLines(bodyText).filter((line) => Boolean(recentAgeText(line)));
   const debugDismissTitles = dismissButtonTitles(document);
+  const debugTitleParagraphs = paragraphElements(document)
+    .filter((paragraph) => isCardTitleParagraph(paragraph, debugDismissTitles));
   const debug = {
     dismissTitleCount: debugDismissTitles.size,
-    titleParagraphCount: paragraphElements(document)
-      .filter((paragraph) => isCardTitleParagraph(paragraph, debugDismissTitles)).length,
+    titleParagraphCount: debugTitleParagraphs.length,
+    // The title the scan treated as card #1. If a live page shows offset
+    // positions again, this reveals where the counted window actually
+    // started without needing a saved copy of the page. The first span is
+    // preferred over the paragraph text because verified-badge titles
+    // concatenate to "TITLE (Verified job) TITLE"; the empty-first-span
+    // variant falls back to the paragraph text.
+    firstCardTitle: debugTitleParagraphs.length
+      ? stripVerifiedBadge(firstTwoSpanTexts(debugTitleParagraphs[0])[0] || nodeText(debugTitleParagraphs[0]))
+      : '',
     cardListingCount: cardListings.length,
     detailPageListingFound: Boolean(detailListing),
     ageLineCount: ageLines.length,

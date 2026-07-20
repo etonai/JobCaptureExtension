@@ -184,6 +184,13 @@ h2 {
   white-space: nowrap;
 }
 
+/* The card's position in the LinkedIn left-hand results list, rendered before
+   the company name. Two classes so it overrides the generic span rule above. */
+.recent-postings-list .recent-postings-position {
+  color: #52677a;
+  font-size: 13px;
+}
+
 .notice {
   color: #475569;
   line-height: 1.4;

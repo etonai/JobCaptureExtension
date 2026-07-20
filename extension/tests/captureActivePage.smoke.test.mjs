@@ -114,6 +114,13 @@ function titleParagraph(text) {
   return echoParagraph(text, text);
 }
 
+// The verified-badge title variant, exactly as rendered in the Nordstrom
+// MHTML fixture: first span "TITLE (Verified job)", aria-hidden span "TITLE"
+// (the real badge svg contributes no text, so it is omitted here).
+function verifiedTitleParagraph(text) {
+  return echoParagraph(`${text} (Verified job)`, text);
+}
+
 function textParagraph(text) {
   return { nodeType: 1, tagName: 'P', childNodes: [{ nodeType: 3, textContent: text }], innerText: text, textContent: text };
 }
@@ -142,6 +149,32 @@ function assert(condition, message) {
 
 function readFixture(relativePath) {
   return readFileSync(resolve(relativePath), 'utf8');
+}
+
+// Extracts the rendered HTML document from a Chromium "save as MHTML"
+// snapshot: finds the first text/html MIME part and undoes its
+// quoted-printable transfer encoding. MHTML is the only save format that
+// captured the verified-badge title rendering (a normal .html save of the
+// same page minutes later had every title plain), so the MHTML fixture is
+// read directly rather than converted by hand.
+function readMhtmlFixture(relativePath) {
+  const raw = readFileSync(resolve(relativePath), 'latin1');
+  const boundaryMatch = raw.match(/boundary="([^"]+)"/);
+  assert(boundaryMatch, `Expected a MIME boundary in ${relativePath}.`);
+  for (const part of raw.split(`--${boundaryMatch[1]}`)) {
+    const headerEnd = part.indexOf('\r\n\r\n');
+    if (headerEnd < 0) continue;
+    const headers = part.slice(0, headerEnd);
+    if (!/Content-Type:\s*text\/html/i.test(headers)) continue;
+    let body = part.slice(headerEnd + 4);
+    if (/Content-Transfer-Encoding:\s*quoted-printable/i.test(headers)) {
+      body = body
+        .replace(/=\r\n/g, '')
+        .replace(/=([0-9A-F]{2})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+    }
+    return body;
+  }
+  throw new Error(`No text/html part found in ${relativePath}.`);
 }
 
 function runEasyPostFixtureTest() {
@@ -299,7 +332,15 @@ function runRecentPostingsListCardStructureTest() {
     // A card where LinkedIn omitted the company <p>: the <p> after the title
     // is the location. Company must be left blank, never mislabeled, but the
     // qualifying-age listing must still appear.
-    ...listCardParagraphs({ title: 'Platform Engineer', company: undefined, location: 'Denver, CO', age: 'Posted 42 minutes ago' })
+    ...listCardParagraphs({ title: 'Platform Engineer', company: undefined, location: 'Denver, CO', age: 'Posted 42 minutes ago' }),
+    // A verified-badge card (Nordstrom MHTML variant): the first span carries
+    // "TITLE (Verified job)", the aria-hidden span the bare title. Before the
+    // DC14 badge fix this title was undetected, which both compressed the
+    // positions and let this card's age leak into the previous card's range.
+    verifiedTitleParagraph('Reliability Engineer'),
+    textParagraph('BadgeCo'),
+    textParagraph('Portland, OR'),
+    ageParagraph('Posted 90 minutes ago')
   ];
 
   setMockPage({
@@ -313,14 +354,53 @@ function runRecentPostingsListCardStructureTest() {
 
   const result = captureRecentJobPostings();
   assert(result.ok === true, 'Expected recent postings scan to be supported on LinkedIn jobs search.');
-  assert(result.listings.length === 4, `Expected 4 recent listings (3 with companies + 1 company-omitted), got ${result.listings.length}: ${JSON.stringify(result.listings)}.`);
-  assert(result.listings.some((l) => l.company === 'Compass' && l.postedText === 'Posted 24 minutes ago' && l.companySource === 'list-card'), 'Expected Compass read positionally from the card structure.');
-  assert(result.listings.some((l) => l.company === 'Redfin' && l.postedText === '1 hour ago' && l.companySource === 'list-card'), 'Expected Redfin from the card structure.');
-  assert(result.listings.some((l) => l.company === 'Armada' && l.postedText === 'Reposted 2 hours ago' && l.companySource === 'list-card'), 'Expected Armada at the 2-hour boundary from the card structure.');
-  assert(result.listings.some((l) => l.company === '' && l.postedText === 'Posted 42 minutes ago' && l.companySource === 'missing'), 'Expected the company-omitted card to still appear with a blank company, not the location.');
+  assert(result.listings.length === 5, `Expected 5 recent listings (3 plain + 1 company-omitted + 1 verified-badge), got ${result.listings.length}: ${JSON.stringify(result.listings)}.`);
+  assert(result.listings.some((l) => l.company === 'Compass' && l.postedText === 'Posted 24 minutes ago' && l.companySource === 'list-card' && l.listPosition === 1), 'Expected Compass read positionally from the card structure at list position 1.');
+  assert(result.listings.some((l) => l.company === 'Redfin' && l.postedText === '1 hour ago' && l.companySource === 'list-card' && l.listPosition === 2), 'Expected Redfin from the card structure at list position 2.');
+  assert(result.listings.some((l) => l.company === 'Armada' && l.postedText === 'Reposted 2 hours ago' && l.companySource === 'list-card' && l.listPosition === 3), 'Expected Armada at the 2-hour boundary from the card structure at list position 3.');
+  // Position 6, not 4: the excluded OldCo (position 4) and NoAgeCo (position
+  // 5) cards still count toward the ordinal, because the number must match
+  // what the user sees counting down the left-hand list.
+  assert(result.listings.some((l) => l.company === '' && l.postedText === 'Posted 42 minutes ago' && l.companySource === 'missing' && l.listPosition === 6), 'Expected the company-omitted card to still appear with a blank company at list position 6 (counting the excluded cards).');
+  assert(result.listings.some((l) => l.company === 'BadgeCo' && l.postedText === 'Posted 90 minutes ago' && l.companySource === 'list-card' && l.listPosition === 7), 'Expected the verified-badge card to be detected as a title, with its own company and age, at list position 7.');
   assert(!result.listings.some((l) => l.company === 'Denver, CO'), 'Expected a location never to be used as a company.');
   assert(!result.listings.some((l) => l.company === 'OldCo'), 'Expected the 3-hour-old card to be excluded by age.');
   assert(!result.listings.some((l) => l.company === 'NoAgeCo'), 'Expected a card with no posting age to be excluded.');
+}
+
+function runRecentPostingsDetailPaneKeepsCardPositionTest() {
+  // DC14 Open Question 1: the open job's detail-pane listing is placed before
+  // the card listings, so when its own list card dedups against it, the
+  // surviving row must inherit the card's listPosition rather than losing it.
+  const paragraphNodes = [
+    ...listCardParagraphs({ title: 'Backend Engineer', company: 'FirstCo', location: 'Seattle, WA', age: 'Posted 30 minutes ago' }),
+    ...listCardParagraphs({ title: 'Merge Engineer', company: 'MergeCo', location: 'Seattle, WA', age: 'Posted 1 hour ago' })
+  ];
+
+  setMockPage({
+    href: 'https://www.linkedin.com/jobs/search-results/?currentJobId=42',
+    hostname: 'www.linkedin.com',
+    pathname: '/jobs/search-results/',
+    title: 'Merge Engineer | MergeCo | LinkedIn',
+    // The open job's detail pane: parses to company MergeCo, age "1 hour ago"
+    // — the same posting as the second card (same normalized company + age).
+    bodyText: [
+      'MergeCo',
+      'Merge Engineer',
+      'Remote | 1 hour ago | 5 applicants',
+      'About the job'
+    ].join('\n'),
+    paragraphNodes
+  });
+
+  const result = captureRecentJobPostings();
+  assert(result.ok === true, 'Expected the detail-pane merge scan to be supported.');
+  assert(result.listings.length === 2, `Expected the detail-pane listing and its own card to dedup to one row plus FirstCo, got ${result.listings.length}: ${JSON.stringify(result.listings)}.`);
+  const merged = result.listings.find((l) => l.company === 'MergeCo');
+  assert(Boolean(merged), `Expected a MergeCo listing, got ${JSON.stringify(result.listings)}.`);
+  assert(merged.companySource === 'detail-page', `Expected the detail-pane listing to survive the dedup, got ${merged.companySource}.`);
+  assert(merged.listPosition === 2, `Expected the survivor to inherit its card's list position 2, got ${merged.listPosition}.`);
+  assert(result.listings.some((l) => l.company === 'FirstCo' && l.listPosition === 1), 'Expected FirstCo to keep list position 1.');
 }
 
 // --- Real-fixture verification -------------------------------------------
@@ -392,7 +472,7 @@ function fixtureDomNodes(html) {
 }
 
 function runRecentPostingsRealFixtureTest(fixturePath, expectations) {
-  const html = readFixture(fixturePath);
+  const html = fixturePath.endsWith('.mhtml') ? readMhtmlFixture(fixturePath) : readFixture(fixturePath);
   const { paragraphNodes, buttonNodes } = fixtureDomNodes(html);
   setMockPage({
     href: 'https://www.linkedin.com/jobs/search-results/?currentJobId=1',
@@ -410,10 +490,16 @@ function runRecentPostingsRealFixtureTest(fixturePath, expectations) {
   const result = isolated();
 
   assert(result.ok === true, `Expected ${fixturePath} scan to be supported.`);
-  for (const { company, postedText } of expectations.present) {
+  for (const { company, postedText, listPosition } of expectations.present) {
     assert(
-      result.listings.some((l) => l.company === company && l.postedText === postedText && l.companySource === 'list-card'),
-      `Expected ${company} (${postedText}) from ${fixturePath}, got ${JSON.stringify(result.listings)}.`
+      result.listings.some((l) => l.company === company && l.postedText === postedText && l.companySource === 'list-card' && l.listPosition === listPosition),
+      `Expected ${company} (${postedText}) at list position ${listPosition} from ${fixturePath}, got ${JSON.stringify(result.listings)}.`
+    );
+  }
+  for (const company of expectations.absent || []) {
+    assert(
+      !result.listings.some((l) => l.company === company),
+      `Expected no ${company} listing from ${fixturePath}, got ${JSON.stringify(result.listings)}.`
     );
   }
   assert(
@@ -430,27 +516,73 @@ function runRecentPostingsDocusignFixtureTest() {
   // Docusign variant: title <p> has an EMPTY first span; only the dismiss
   // buttons identify the cards. This is the exact page that produced the
   // all-"Unknown company" report against 0.0.13.12.
+  // listPosition values are the card ordinals counted from the fixture's
+  // left-hand list in document order (DC14). The two Remitly cards sit at
+  // positions 5 and 6 with the same company + age; the dedup survivor keeps
+  // the first card's position.
   runRecentPostingsRealFixtureTest('doc/examples/Senior Software Engineer _ Docusign _ LinkedIn.html', {
     count: 4,
     present: [
-      { company: 'Remitly, Inc. - XML', postedText: 'Posted 1 hour ago' },
-      { company: 'Weights & Biases', postedText: 'Posted 1 hour ago' },
-      { company: 'Parametrix', postedText: 'Posted 2 hours ago' },
-      { company: 'Cisco', postedText: 'Posted 42 minutes ago' }
+      { company: 'Remitly, Inc. - XML', postedText: 'Posted 1 hour ago', listPosition: 5 },
+      { company: 'Weights & Biases', postedText: 'Posted 1 hour ago', listPosition: 14 },
+      { company: 'Parametrix', postedText: 'Posted 2 hours ago', listPosition: 16 },
+      { company: 'Cisco', postedText: 'Posted 42 minutes ago', listPosition: 25 }
     ]
   });
 }
 
 function runRecentPostingsStarbucksFixtureTest() {
-  // Starbucks variant: titles render as the identical-two-span echo.
+  // Starbucks variant: titles render as the identical-two-span echo — except
+  // three cards this fixture turned out to also contain: two verified-badge
+  // titles and the selected job's own card (first span "Selected, TITLE
+  // (Verified job)", caught via its aria-hidden span). Before the DC14 badge
+  // fix those three were undetected, which compressed these expected
+  // positions (Armada was asserted at 4 instead of its true 6). The values
+  // below are counted from the fixture's dismiss buttons in document order:
+  // selected card 1, Compass 2, Redfin 3-4, badge card 5, Armada 6, ...
   runRecentPostingsRealFixtureTest('doc/examples/Starbucksmoreunselectedbare.html', {
     count: 4,
     present: [
-      { company: 'Armada', postedText: 'Posted 7 minutes ago' },
-      { company: 'Microsoft', postedText: 'Posted 23 minutes ago' },
-      { company: 'SpaceX', postedText: 'Posted 48 minutes ago' },
-      { company: 'CoreWeave', postedText: 'Posted 1 hour ago' }
+      { company: 'Armada', postedText: 'Posted 7 minutes ago', listPosition: 6 },
+      { company: 'Microsoft', postedText: 'Posted 23 minutes ago', listPosition: 14 },
+      { company: 'SpaceX', postedText: 'Posted 48 minutes ago', listPosition: 15 },
+      { company: 'CoreWeave', postedText: 'Posted 1 hour ago', listPosition: 16 }
     ]
+  });
+}
+
+function runRecentPostingsNordstromHtmlFixtureTest() {
+  // Third real variant source: a 25-card page whose .html save renders every
+  // title plain. This is the save that first exposed the DC14 position-offset
+  // report; against the full DOM the true positions are 9 / 18 / 21.
+  runRecentPostingsRealFixtureTest('doc/examples/Engineer 2 _ Nordstrom _ LinkedIn.html', {
+    count: 3,
+    present: [
+      { company: 'Maestro AI', postedText: 'Posted 1 hour ago', listPosition: 9 },
+      { company: 'General Robotics', postedText: 'Posted 29 minutes ago', listPosition: 18 },
+      { company: 'EvergreenHealth', postedText: 'Posted 57 minutes ago', listPosition: 21 }
+    ]
+  });
+}
+
+function runRecentPostingsNordstromMhtmlFixtureTest() {
+  // Fourth real variant source, and the only fixture that captures the
+  // verified-badge title rendering: 20 of the 25 cards render their title as
+  // <span>TITLE (Verified job)</span><span aria-hidden>TITLE<svg/></span>,
+  // which before the DC14 badge fix defeated both title detectors — the
+  // popup showed compressed positions (2/3/4 instead of 9/18/21) and, worse,
+  // attributed EvergreenHealth's 55-minute age to GenScript (card 19, really
+  // 12 hours old) because the undetected titles merged card ranges. The
+  // GenScript absence assertion pins the mispairing fix; the positions pin
+  // the offset fix. See "Root Cause Found" in DevCycle014.md.
+  runRecentPostingsRealFixtureTest('doc/examples/Engineer 2 _ Nordstrom _ LinkedIn.mhtml', {
+    count: 3,
+    present: [
+      { company: 'Maestro AI', postedText: 'Posted 59 minutes ago', listPosition: 9 },
+      { company: 'General Robotics', postedText: 'Posted 27 minutes ago', listPosition: 18 },
+      { company: 'EvergreenHealth', postedText: 'Posted 55 minutes ago', listPosition: 21 }
+    ],
+    absent: ['GenScript']
   });
 }
 
@@ -516,6 +648,7 @@ function runRecentPostingsWholePageFallbackTest() {
   assert(result.ok === true, 'Expected the whole-page fallback scan to be supported.');
   assert(result.listings.length === 3, `Expected all 3 qualifying-age postings to be found even without a card selector match, got ${result.listings.length}.`);
   assert(result.listings.some((listing) => listing.company === 'FreshCo' && listing.postedText === '13 minutes ago' && listing.companySource === 'detail-page'), 'Expected the first posting to be labeled via the detail-page header parser.');
+  assert(result.listings.every((listing) => listing.listPosition == null), `Expected no listPosition on detail-page or whole-page-fallback listings (no card to point at), got ${JSON.stringify(result.listings)}.`);
   assert(result.listings.some((listing) => listing.company === '' && listing.postedText === '1 hour ago' && listing.companySource === 'missing'), 'Expected the second posting to still be reported with an unresolved company, not dropped.');
   assert(result.listings.some((listing) => listing.company === '' && listing.postedText === '2 hours ago' && listing.companySource === 'missing'), 'Expected the third posting (2-hour boundary) to still be reported with an unresolved company, not dropped.');
   assert(!result.listings.some((listing) => listing.postedText === '3 hours ago'), 'Expected the 3-hour-old posting to be excluded by age, not just by the fallback.');
@@ -573,6 +706,7 @@ function runRecentPostingsDetailFallbackTest() {
   assert(result.listings.length === 1, `Expected one recent detail listing, got ${result.listings.length}.`);
   assert(result.listings[0].company === 'Blue Origin', `Expected Blue Origin, got ${result.listings[0].company}.`);
   assert(result.listings[0].postedText === 'Reposted 2 hours ago', `Expected reposted 2 hours, got ${result.listings[0].postedText}.`);
+  assert(result.listings[0].listPosition == null, `Expected no listPosition on a detail-page-only listing, got ${result.listings[0].listPosition}.`);
 }
 
 function runRecentPostingsDetailFallbackMissingCompanyTest() {
@@ -642,8 +776,11 @@ runSalaryAbsentDoesNotUseUnrelatedHeaderSalaryTest();
 runMarkdownDescriptionDomTest();
 runUnsupportedPageTest();
 runRecentPostingsListCardStructureTest();
+runRecentPostingsDetailPaneKeepsCardPositionTest();
 runRecentPostingsDocusignFixtureTest();
 runRecentPostingsStarbucksFixtureTest();
+runRecentPostingsNordstromHtmlFixtureTest();
+runRecentPostingsNordstromMhtmlFixtureTest();
 runRecentPostingsIsInjectionSafeTest();
 runRecentPostingsWholePageFallbackTest();
 runRecentPostingsWholePageFallbackEchoDedupTest();

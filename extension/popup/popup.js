@@ -65,7 +65,13 @@ function setRecentPostingsState(kind, message, listings = []) {
     const item = document.createElement('li');
     const company = document.createElement('strong');
     const posted = document.createElement('span');
-    company.textContent = listing.company || 'Unknown company';
+    if (Number.isInteger(listing.listPosition) && listing.listPosition > 0) {
+      const position = document.createElement('span');
+      position.className = 'recent-postings-position';
+      position.textContent = `${listing.listPosition} `;
+      company.append(position);
+    }
+    company.append(listing.company || 'Unknown company');
     posted.textContent = listing.postedText || '';
     item.append(company, posted);
     elements.recentPostingsList.append(item);
@@ -101,7 +107,11 @@ async function scanRecentPostings() {
       return;
     }
     const noun = listings.length === 1 ? 'posting' : 'postings';
-    setRecentPostingsState('ready', `${listings.length} recent ${noun} found.`, listings);
+    // The card count backs the position numbers: if it is far below the
+    // visible list length, positions are compressed (undetected titles) and
+    // the debug console log has the evidence (see DevCycle014.md).
+    const cardSuffix = result.debug ? ` (${result.debug.titleParagraphCount} cards detected)` : '';
+    setRecentPostingsState('ready', `${listings.length} recent ${noun} found.${cardSuffix}`, listings);
   } catch (error) {
     setRecentPostingsState('error', error.message || String(error));
   }
