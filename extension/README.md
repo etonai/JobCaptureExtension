@@ -121,7 +121,12 @@ Each popup scan also highlights the matching cards in LinkedIn's left-hand resul
 
 Options has a Job Search panel with `Keywords` and `geoId` fields, stored in `chrome.storage.local` and restored when Options reopens. `geoId` is a LinkedIn location identifier copied from a search results URL and stored verbatim; it is never transformed. Defaults are seeded to `Software Engineer` / `90000091` so the feature works immediately without configuration.
 
-The popup's "Open Job Search" button builds a search-results URL from only the parameters that determine the results (`keywords`, `geoId`, `f_TPR=r86400` for a 24-hour window) and opens it in a new tab. It intentionally omits LinkedIn's tracking and context parameters (`origin`, `originToLandingJobPostings`, `referralSearchId`, `lipi`, `currentJobId`, `showHowYouFit`, `start`), which are unnecessary for reproducing the search and, in the case of `originToLandingJobPostings`, rotate on every page view. If keywords or `geoId` are blank, the button shows a status message and opens Options instead of navigating to a broken search.
+The popup has two buttons side by side that share this configuration:
+
+- **Open Job Search** builds a search-results URL from only the parameters that determine the results (`keywords`, `geoId`, `f_TPR=r86400` for a 24-hour window) and opens it in a new tab. It intentionally omits LinkedIn's tracking and context parameters (`origin`, `originToLandingJobPostings`, `referralSearchId`, `lipi`, `currentJobId`, `showHowYouFit`, `start`), which are unnecessary for reproducing the search and, in the case of `originToLandingJobPostings`, rotate on every page view.
+- **Open Premium Job Search** builds the same URL plus `origin=QUALIFICATION_LANDING` and the cosmetic `showHowYouFit=HOW_YOU_FIT`, aiming to reproduce LinkedIn's "Show All" premium/top-applicant surface. It still omits the rotating `originToLandingJobPostings` job-ID set and the per-session `referralSearchId`/`lipi` tokens, since the extension cannot legitimately fabricate those; whether `origin=QUALIFICATION_LANDING` alone is sufficient to reach the premium surface is a live-verification result, not a guarantee.
+
+If keywords or `geoId` are blank, either button shows a status message and opens Options instead of navigating to a broken search.
 
 ## Local Checks
 

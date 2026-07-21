@@ -4,7 +4,7 @@ import { findCachedPriorCompanyWarning, findPriorCompanyInCache, refreshPriorCom
 import { appendCaptureRecordToCsv, OTHER_LISTINGS_CSV_FILENAME, saveCaptureRecord } from '../shared/saveListing.js';
 import { getRecentPostingsAgeConfig, loadRecentPostingsAgeSetting } from '../shared/recentPostingsSettings.js';
 import { isJobSearchConfigured, loadJobSearchSettings } from '../shared/jobSearchSettings.js';
-import { buildJobSearchUrl } from '../shared/searchUrlBuilder.js';
+import { buildJobSearchUrl, buildPremiumJobSearchUrl } from '../shared/searchUrlBuilder.js';
 
 const AUTO_CAPTURE_INTENT_KEY = 'popupIntent';
 const AUTO_CAPTURE_INTENT_TTL_MS = 10_000;
@@ -19,6 +19,7 @@ const elements = {
   notesInput: document.querySelector('#notesInput'),
   optionsButton: document.querySelector('#optionsButton'),
   openJobSearchButton: document.querySelector('#openJobSearchButton'),
+  openPremiumJobSearchButton: document.querySelector('#openPremiumJobSearchButton'),
   recentPostingsPanel: document.querySelector('#recentPostingsPanel'),
   recentPostingsCount: document.querySelector('#recentPostingsCount'),
   recentPostingsMessage: document.querySelector('#recentPostingsMessage'),
@@ -334,7 +335,7 @@ function openOptions() {
   chrome.runtime.openOptionsPage();
 }
 
-async function openJobSearch() {
+async function openJobSearchUrl(buildUrl, failureTitle) {
   const settings = await loadJobSearchSettings();
   if (!isJobSearchConfigured(settings)) {
     setStatus('error', 'Job Search Not Configured', 'Set keywords and geoId in Options, then try again.');
@@ -343,11 +344,19 @@ async function openJobSearch() {
   }
 
   try {
-    const url = buildJobSearchUrl(settings);
+    const url = buildUrl(settings);
     await chrome.tabs.create({ url });
   } catch (error) {
-    setStatus('error', 'Open Job Search Failed', error.message || String(error));
+    setStatus('error', failureTitle, error.message || String(error));
   }
+}
+
+function openJobSearch() {
+  return openJobSearchUrl(buildJobSearchUrl, 'Open Job Search Failed');
+}
+
+function openPremiumJobSearch() {
+  return openJobSearchUrl(buildPremiumJobSearchUrl, 'Open Premium Job Search Failed');
 }
 
 function delay(ms) {
@@ -430,6 +439,7 @@ elements.saveButton.addEventListener('click', runSave);
 elements.recordListingButton.addEventListener('click', runRecordListing);
 elements.optionsButton.addEventListener('click', openOptions);
 elements.openJobSearchButton.addEventListener('click', openJobSearch);
+elements.openPremiumJobSearchButton.addEventListener('click', openPremiumJobSearch);
 chrome.runtime.onMessage.addListener((message) => {
   if (message?.type === AUTO_CAPTURE_READY_MESSAGE) {
     consumeAutoCaptureIntent().catch((error) => {

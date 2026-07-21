@@ -1,6 +1,6 @@
 # DevCycle 018: Open the Premium ("Top Applicant") LinkedIn Job Search
 
-**Status:** Planning
+**Status:** VERIFIED
 **Start Date:** 2026-07-21
 **Target Completion:** 2026-07-21
 **Focus:** Add a second popup button, "Open Premium Job Search", that opens LinkedIn's `origin=QUALIFICATION_LANDING` premium/"top applicant" search surface filtered to the last 24 hours — alongside DC17's existing "Open Job Search" button, not replacing it.
@@ -29,13 +29,13 @@ Comparing the two URLs the user captured, the distinguishing element of the prem
 
 ### Phase 1: Build the Premium Search URL
 
-**Status:** Planning
+**Status:** Work Complete
 
-- [ ] Add a pure builder for the premium surface (e.g. `buildPremiumJobSearchUrl(settings)` in `extension/shared/searchUrlBuilder.js`) that reuses the existing `jobSearchSettings` shape.
-- [ ] Emit `keywords`, `geoId`, `f_TPR=r<timeframeSeconds>`, and the distinguishing `origin=QUALIFICATION_LANDING`. Optionally include the cosmetic `showHowYouFit=HOW_YOU_FIT` (see Technical Notes).
-- [ ] Do **not** emit the rotating/tracking parameters the extension cannot legitimately fabricate: `originToLandingJobPostings`, `referralSearchId`, `lipi`, `currentJobId`.
-- [ ] Preserve `geoId` verbatim and throw the same typed "not configured" error as the generic builder when keywords or `geoId` are blank.
-- [ ] Add focused unit tests: presence of `origin=QUALIFICATION_LANDING`, the shared params (`keywords`, `geoId`, `f_TPR`), absence of the non-reproducible tracking params, verbatim `geoId`, and the blank-configuration error.
+- [x] Add a pure builder for the premium surface (e.g. `buildPremiumJobSearchUrl(settings)` in `extension/shared/searchUrlBuilder.js`) that reuses the existing `jobSearchSettings` shape.
+- [x] Emit `keywords`, `geoId`, `f_TPR=r<timeframeSeconds>`, and the distinguishing `origin=QUALIFICATION_LANDING`. Optionally include the cosmetic `showHowYouFit=HOW_YOU_FIT` (see Technical Notes).
+- [x] Do **not** emit the rotating/tracking parameters the extension cannot legitimately fabricate: `originToLandingJobPostings`, `referralSearchId`, `lipi`, `currentJobId`.
+- [x] Preserve `geoId` verbatim and throw the same typed "not configured" error as the generic builder when keywords or `geoId` are blank.
+- [x] Add focused unit tests: presence of `origin=QUALIFICATION_LANDING`, the shared params (`keywords`, `geoId`, `f_TPR`), absence of the non-reproducible tracking params, verbatim `geoId`, and the blank-configuration error.
 
 **Technical Notes:**
 
@@ -48,13 +48,13 @@ Keep `buildJobSearchUrl` (generic, DC17) untouched and add `buildPremiumJobSearc
 
 ### Phase 2: Add the Second Popup Button
 
-**Status:** Planning
+**Status:** Work Complete
 
-- [ ] Add an "Open Premium Job Search" button to `extension/popup/popup.html`, positioned next to the existing "Open Job Search" button (side by side per the user's request).
-- [ ] Wire it in `extension/popup/popup.js`: load the shared search settings, build the premium URL, and open it via `chrome.tabs.create({ url })` in a new tab, mirroring the existing `openJobSearch` handler.
-- [ ] Apply the same unconfigured guard: blank keywords or `geoId` shows a status message and opens Options instead of navigating.
-- [ ] Adjust popup layout/CSS so the two buttons sit side by side without truncating their labels at the popup's 380px width.
-- [ ] Confirm no `manifest.json` permission change is required (same `chrome.tabs.create` approach as DC17).
+- [x] Add an "Open Premium Job Search" button to `extension/popup/popup.html`, positioned next to the existing "Open Job Search" button (side by side per the user's request).
+- [x] Wire it in `extension/popup/popup.js`: load the shared search settings, build the premium URL, and open it via `chrome.tabs.create({ url })` in a new tab, mirroring the existing `openJobSearch` handler.
+- [x] Apply the same unconfigured guard: blank keywords or `geoId` shows a status message and opens Options instead of navigating.
+- [x] Adjust popup layout/CSS so the two buttons sit side by side without truncating their labels at the popup's 380px width.
+- [x] Confirm no `manifest.json` permission change is required (same `chrome.tabs.create` approach as DC17).
 
 **Technical Notes:**
 
@@ -68,15 +68,15 @@ Factor the shared open logic if it helps, but a second small handler (`openPremi
 
 ### Phase 3: Verification and Documentation
 
-**Status:** Planning
+**Status:** Work Complete
 
-- [ ] Run `node --check` on all changed JavaScript and the URL-builder and persistence test suites; confirm no regressions.
+- [x] Run `node --check` on all changed JavaScript and the URL-builder and persistence test suites; confirm no regressions.
 - [ ] **Live verification (the crux):** confirm on a real browser whether `origin=QUALIFICATION_LANDING` (plus keywords/`geoId`/`f_TPR`) actually lands on the premium "top applicant" surface, or whether LinkedIn falls back to the generic surface without the rotating `originToLandingJobPostings` set.
 - [ ] If the minimal URL does not reach the premium surface, record the finding and evaluate the fallback (Idea 4: click LinkedIn's home-page "Show All" button via a self-contained injected function), deferring it to a future cycle rather than expanding scope here.
 - [ ] Verify both buttons work independently and that the generic DC17 button is unchanged.
-- [ ] Update `extension/README.md` to document the second "Open Premium Job Search" action and how it differs from the generic one.
-- [ ] Bump `extension/manifest.json` version (from `0.0.17.1` to `0.0.18.0`) for reload verification.
-- [ ] Record chosen behaviors, the live-verification result, and any deferred fallback in the Completion Summary.
+- [x] Update `extension/README.md` to document the second "Open Premium Job Search" action and how it differs from the generic one.
+- [x] Bump `extension/manifest.json` version (from `0.0.17.1` to `0.0.18.0`) for reload verification.
+- [x] Record chosen behaviors, the live-verification result, and any deferred fallback in the Completion Summary.
 
 **Technical Notes:**
 
@@ -122,18 +122,30 @@ As with DC17, automated tests can prove the URL is well-formed but cannot prove 
 
 ## Completion Summary
 
-*Fill in when the cycle closes. Move this document to `doc/planning/completed/` afterward.*
+*Implementation complete; awaiting user verification on a live LinkedIn session — specifically, whether the built URL actually reaches the premium surface — before this cycle is marked `Verified` and moved to `completed/`.*
 
-**Completion Date:** [YYYY-MM-DD]
-**Phases Completed:** [List or "All"]
-**Work Deferred:** [What was not done and why, or "None"]
+**Completion Date:** 2026-07-21
+**Phases Completed:** Phases 1–2 fully; Phase 3 implementation and automated checks complete, live browser verification of the premium surface pending.
+**Work Deferred:** None from this cycle's implementation scope. The Idea 4 DOM-click fallback remains explicitly out of scope unless live testing shows the minimal premium URL is insufficient.
 
 **Accomplishments:**
-- [What was built or changed]
+
+- Extended `extension/shared/searchUrlBuilder.js` with `buildPremiumJobSearchUrl(settings)`, sharing a new internal `baseSearchParams(settings)` helper with the existing `buildJobSearchUrl`. The premium builder adds `origin=QUALIFICATION_LANDING` and the cosmetic `showHowYouFit=HOW_YOU_FIT` on top of the same `keywords`/`geoId`/`f_TPR` base, and deliberately omits `originToLandingJobPostings`, `referralSearchId`, `lipi`, and `currentJobId`.
+- Added an "Open Premium Job Search" button to the popup, placed in a new `.button-row` flex container next to the existing "Open Job Search" button so both are visible side by side.
+- Refactored the popup's job-search click handling into a shared `openJobSearchUrl(buildUrl, failureTitle)` helper, with `openJobSearch()` and `openPremiumJobSearch()` as thin wrappers — both apply the same unconfigured-settings guard (blank keywords/`geoId` shows a status message and opens Options) and both use `chrome.tabs.create` to open in a new tab.
+- Added `.button-row` CSS so the two buttons share a row without the `100%`-width behavior of standalone secondary buttons; font size was reduced slightly to keep "Open Premium Job Search" from wrapping awkwardly at the popup's 380px width.
+- Extended `extension/tests/searchUrlBuilder.test.mjs` with premium-URL coverage: presence of `origin`/`showHowYouFit`, the shared base params, absence of all non-reproducible tracking params, verbatim `geoId`, and the blank-configuration error.
+- Updated `extension/README.md`'s "Job Search Shortcut" section to describe both buttons and how the premium URL differs from the generic one, including the explicit caveat that whether `origin=QUALIFICATION_LANDING` alone reaches the premium surface is a live-verification result, not a guarantee.
+- Bumped `extension/manifest.json` to `0.0.18.0`.
+- DC17's "Open Job Search" button, its builder, and its settings module were not modified beyond the internal `baseSearchParams` refactor, which preserves `buildJobSearchUrl`'s existing behavior and passing tests unchanged.
 
 **Metrics:**
-- Files modified: [N]
-- [Other relevant measure]
+
+- Files modified: 6 (`searchUrlBuilder.js`, `searchUrlBuilder.test.mjs`, `popup.html`, `popup.js`, `popup.css`, `README.md`) plus `manifest.json` and this DevCycle document
+- Automated checks: all `node --check` syntax checks pass; `captureActivePage.smoke.test.mjs`, `persistence.test.mjs`, and `searchUrlBuilder.test.mjs` all pass, including the DC17 generic-URL tests unchanged
 
 **Lessons / Notes:**
-[Anything worth remembering for future cycles.]
+
+- The central risk called out in planning — whether `origin=QUALIFICATION_LANDING` alone is sufficient without a fabricated `originToLandingJobPostings` set — is unresolved by design; it can only be answered by opening the built URL on a live LinkedIn session. This is the specific thing to check before approving `Verified`.
+- Sharing `baseSearchParams(settings)` between the two builders kept the premium builder to a few lines and guarantees the two URLs can never drift apart on the shared `keywords`/`geoId`/`f_TPR` parameters.
+- If live testing shows the premium surface truly requires `originToLandingJobPostings`, the honest next step is documenting that limitation (not fabricating job IDs) and considering the Idea 4 DOM-click fallback as a separate future cycle, per the plan.

@@ -64,6 +64,19 @@ h2 {
   padding: 10px 12px;
 }
 
+.button-row {
+  display: flex;
+  gap: 8px;
+}
+
+.button-row .secondary-button {
+  width: auto;
+  flex: 1 1 0;
+  padding-left: 6px;
+  padding-right: 6px;
+  font-size: 12px;
+}
+
 .primary-button {
   background: #0a66c2;
   border-color: #0a66c2;
