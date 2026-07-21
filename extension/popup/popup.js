@@ -5,6 +5,7 @@ import { appendCaptureRecordToCsv, OTHER_LISTINGS_CSV_FILENAME, saveCaptureRecor
 import { getRecentPostingsAgeConfig, loadRecentPostingsAgeSetting } from '../shared/recentPostingsSettings.js';
 import { isJobSearchConfigured, loadJobSearchSettings } from '../shared/jobSearchSettings.js';
 import { buildJobSearchUrl, buildPremiumJobSearchUrl } from '../shared/searchUrlBuilder.js';
+import { isLinkedInJobSearchUrl, nextPageUrl } from '../shared/pagingUrl.js';
 
 const AUTO_CAPTURE_INTENT_KEY = 'popupIntent';
 const AUTO_CAPTURE_INTENT_TTL_MS = 10_000;
@@ -20,6 +21,7 @@ const elements = {
   optionsButton: document.querySelector('#optionsButton'),
   openJobSearchButton: document.querySelector('#openJobSearchButton'),
   openPremiumJobSearchButton: document.querySelector('#openPremiumJobSearchButton'),
+  nextPageButton: document.querySelector('#nextPageButton'),
   recentPostingsPanel: document.querySelector('#recentPostingsPanel'),
   recentPostingsCount: document.querySelector('#recentPostingsCount'),
   recentPostingsMessage: document.querySelector('#recentPostingsMessage'),
@@ -359,6 +361,22 @@ function openPremiumJobSearch() {
   return openJobSearchUrl(buildPremiumJobSearchUrl, 'Open Premium Job Search Failed');
 }
 
+async function goToNextPage() {
+  try {
+    const tab = await getActiveTab();
+    if (!tab.url || !isLinkedInJobSearchUrl(tab.url)) {
+      setStatus('error', 'Not a Job Search Page', 'Open a LinkedIn job search (generic or premium) first, then try Next Page.');
+      return;
+    }
+
+    const url = nextPageUrl(tab.url);
+    await chrome.tabs.update(tab.id, { url });
+    setStatus('capturing', 'Advancing Page', 'Loading the next page of results. Reopen the popup to rescan recent postings.');
+  } catch (error) {
+    setStatus('error', 'Next Page Failed', error.message || String(error));
+  }
+}
+
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -440,6 +458,7 @@ elements.recordListingButton.addEventListener('click', runRecordListing);
 elements.optionsButton.addEventListener('click', openOptions);
 elements.openJobSearchButton.addEventListener('click', openJobSearch);
 elements.openPremiumJobSearchButton.addEventListener('click', openPremiumJobSearch);
+elements.nextPageButton.addEventListener('click', goToNextPage);
 chrome.runtime.onMessage.addListener((message) => {
   if (message?.type === AUTO_CAPTURE_READY_MESSAGE) {
     consumeAutoCaptureIntent().catch((error) => {

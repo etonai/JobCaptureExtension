@@ -105,3 +105,7 @@ So the new DC 18 will be Idea 3 but the way I wanted it in the beginning. "Open 
 
 We'll push idea 1 to DC 19.
 
+
+## Edward comment after DC 18
+DC 18 is what I originally wanted, but I see a value in having both DC 17 and DC 18 options
+
