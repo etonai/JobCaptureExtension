@@ -22,6 +22,7 @@ Implemented in the current shell:
 - user-entered notes saved to JSON and the CSV `notes` column
 - prior company warning after capture when the company already appears in `old-tracking.txt` or `job-tracking.csv`
 - popup recent-postings summary for visible LinkedIn listings posted within a user-configurable age (`2 hours or less` by default, or `1 hour or less` / `less than 1 hour` from Options); rows sourced from a results-list card are prefixed with the card's position in the left-hand list (e.g. `5 Armada`)
+- popup "Open Job Search" action that opens the first page of a user-configured LinkedIn search (keywords + geoId) in a new tab, built from stable URL parameters only
 
 It does not implement the final editable review UI. The Save action writes the current captured parser result; DevCycle006 will add richer field editing before save.
 
@@ -48,10 +49,13 @@ extension/
     projectFolderStore.js
     priorCompanyCache.js
     recentPostingsSettings.js
+    jobSearchSettings.js
+    searchUrlBuilder.js
     saveListing.js
   tests/
     captureActivePage.smoke.test.mjs
     persistence.test.mjs
+    searchUrlBuilder.test.mjs
   PARSER_NOTES.md
 ```
 
@@ -113,6 +117,12 @@ The popup reads the saved choice before each scan and passes it into the injecte
 
 Each popup scan also highlights the matching cards in LinkedIn's left-hand results list with a green edge, outline, and light green tint. The scan removes its previous markers before applying the current filter, so changing the age choice or rescanning updated results does not leave stale highlights. Highlights are temporary page styling only: they do not change captured data, and LinkedIn may remove them if it re-renders a card until the next popup scan.
 
+## Job Search Shortcut
+
+Options has a Job Search panel with `Keywords` and `geoId` fields, stored in `chrome.storage.local` and restored when Options reopens. `geoId` is a LinkedIn location identifier copied from a search results URL and stored verbatim; it is never transformed. Defaults are seeded to `Software Engineer` / `90000091` so the feature works immediately without configuration.
+
+The popup's "Open Job Search" button builds a search-results URL from only the parameters that determine the results (`keywords`, `geoId`, `f_TPR=r86400` for a 24-hour window) and opens it in a new tab. It intentionally omits LinkedIn's tracking and context parameters (`origin`, `originToLandingJobPostings`, `referralSearchId`, `lipi`, `currentJobId`, `showHowYouFit`, `start`), which are unnecessary for reproducing the search and, in the case of `originToLandingJobPostings`, rotate on every page view. If keywords or `geoId` are blank, the button shows a status message and opens Options instead of navigating to a broken search.
+
 ## Local Checks
 
 Run from the repository root:
@@ -127,9 +137,12 @@ node --check extension/shared/filename.js
 node --check extension/shared/projectFolderStore.js
 node --check extension/shared/priorCompanyCache.js
 node --check extension/shared/recentPostingsSettings.js
+node --check extension/shared/jobSearchSettings.js
+node --check extension/shared/searchUrlBuilder.js
 node --check extension/shared/saveListing.js
 node extension/tests/captureActivePage.smoke.test.mjs
 node extension/tests/persistence.test.mjs
+node extension/tests/searchUrlBuilder.test.mjs
 ```
 
 ## Notes

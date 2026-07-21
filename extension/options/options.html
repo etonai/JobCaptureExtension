@@ -38,6 +38,20 @@
       </div>
     </section>
 
+    <section class="panel" aria-labelledby="jobSearchHeading">
+      <h2 id="jobSearchHeading">Job Search</h2>
+      <p>Configure the search the popup's "Open Job Search" button opens. Copy <code>geoId</code> from a LinkedIn search results URL and paste it verbatim.</p>
+      <label class="field" for="jobSearchKeywordsInput">
+        <span>Keywords</span>
+        <input id="jobSearchKeywordsInput" type="text" placeholder="Software Engineer">
+      </label>
+      <label class="field" for="jobSearchGeoIdInput">
+        <span>geoId</span>
+        <input id="jobSearchGeoIdInput" type="text" placeholder="90000091">
+      </label>
+      <p id="jobSearchStatus" class="status" aria-live="polite">Loading saved preference.</p>
+    </section>
+
     <section class="panel" aria-labelledby="recentPostingsHeading">
       <h2 id="recentPostingsHeading">Recent Postings</h2>
       <p>Choose how fresh a LinkedIn posting must be to appear in the popup's Recent Postings list.</p>

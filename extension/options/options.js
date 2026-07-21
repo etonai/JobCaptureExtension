@@ -13,6 +13,7 @@ import {
   recentPostingsAgeOptions,
   saveRecentPostingsAgeSetting
 } from '../shared/recentPostingsSettings.js';
+import { loadJobSearchSettings, saveJobSearchSettings } from '../shared/jobSearchSettings.js';
 
 const elements = {
   apiStatus: document.querySelector('#apiStatus'),
@@ -24,7 +25,10 @@ const elements = {
   forgetFolderButton: document.querySelector('#forgetFolderButton'),
   log: document.querySelector('#log'),
   recentPostingsAgeGroup: document.querySelector('#recentPostingsAgeGroup'),
-  recentPostingsAgeStatus: document.querySelector('#recentPostingsAgeStatus')
+  recentPostingsAgeStatus: document.querySelector('#recentPostingsAgeStatus'),
+  jobSearchKeywordsInput: document.querySelector('#jobSearchKeywordsInput'),
+  jobSearchGeoIdInput: document.querySelector('#jobSearchGeoIdInput'),
+  jobSearchStatus: document.querySelector('#jobSearchStatus')
 };
 
 function timestamp() {
@@ -144,12 +148,39 @@ async function initRecentPostingsAgeGroup() {
   elements.recentPostingsAgeStatus.textContent = 'Loaded saved preference.';
 }
 
+async function saveJobSearchFromInputs() {
+  elements.jobSearchStatus.textContent = 'Saving...';
+  try {
+    const saved = await saveJobSearchSettings({
+      keywords: elements.jobSearchKeywordsInput.value,
+      geoId: elements.jobSearchGeoIdInput.value,
+      timeframeSeconds: 86400
+    });
+    elements.jobSearchStatus.textContent = 'Saved.';
+    log('Saved Job Search configuration.', `keywords="${saved.keywords}" geoId="${saved.geoId}"`);
+  } catch (error) {
+    elements.jobSearchStatus.textContent = 'Failed to save preference.';
+    log('Failed to save Job Search configuration.', error.message || String(error));
+  }
+}
+
+async function initJobSearchFields() {
+  const settings = await loadJobSearchSettings();
+  elements.jobSearchKeywordsInput.value = settings.keywords;
+  elements.jobSearchGeoIdInput.value = settings.geoId;
+  elements.jobSearchStatus.textContent = 'Loaded saved preference.';
+
+  elements.jobSearchKeywordsInput.addEventListener('change', saveJobSearchFromInputs);
+  elements.jobSearchGeoIdInput.addEventListener('change', saveJobSearchFromInputs);
+}
+
 async function init() {
   if (!isFileSystemAccessAvailable()) {
     log('File System Access API is unavailable in this browser context.');
   }
   await refreshStatus();
   await initRecentPostingsAgeGroup();
+  await initJobSearchFields();
   log('Options loaded.');
 }
 

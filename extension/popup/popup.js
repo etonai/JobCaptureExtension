@@ -3,6 +3,8 @@ import { ensureProjectReadPermission, getProjectFolderStatus, getStoredProjectFo
 import { findCachedPriorCompanyWarning, findPriorCompanyInCache, refreshPriorCompanyCache } from '../shared/priorCompanyCache.js';
 import { appendCaptureRecordToCsv, OTHER_LISTINGS_CSV_FILENAME, saveCaptureRecord } from '../shared/saveListing.js';
 import { getRecentPostingsAgeConfig, loadRecentPostingsAgeSetting } from '../shared/recentPostingsSettings.js';
+import { isJobSearchConfigured, loadJobSearchSettings } from '../shared/jobSearchSettings.js';
+import { buildJobSearchUrl } from '../shared/searchUrlBuilder.js';
 
 const AUTO_CAPTURE_INTENT_KEY = 'popupIntent';
 const AUTO_CAPTURE_INTENT_TTL_MS = 10_000;
@@ -16,6 +18,7 @@ const elements = {
   recordListingButton: document.querySelector('#recordListingButton'),
   notesInput: document.querySelector('#notesInput'),
   optionsButton: document.querySelector('#optionsButton'),
+  openJobSearchButton: document.querySelector('#openJobSearchButton'),
   recentPostingsPanel: document.querySelector('#recentPostingsPanel'),
   recentPostingsCount: document.querySelector('#recentPostingsCount'),
   recentPostingsMessage: document.querySelector('#recentPostingsMessage'),
@@ -331,6 +334,22 @@ function openOptions() {
   chrome.runtime.openOptionsPage();
 }
 
+async function openJobSearch() {
+  const settings = await loadJobSearchSettings();
+  if (!isJobSearchConfigured(settings)) {
+    setStatus('error', 'Job Search Not Configured', 'Set keywords and geoId in Options, then try again.');
+    openOptions();
+    return;
+  }
+
+  try {
+    const url = buildJobSearchUrl(settings);
+    await chrome.tabs.create({ url });
+  } catch (error) {
+    setStatus('error', 'Open Job Search Failed', error.message || String(error));
+  }
+}
+
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -410,6 +429,7 @@ elements.captureButton.addEventListener('click', runCapture);
 elements.saveButton.addEventListener('click', runSave);
 elements.recordListingButton.addEventListener('click', runRecordListing);
 elements.optionsButton.addEventListener('click', openOptions);
+elements.openJobSearchButton.addEventListener('click', openJobSearch);
 chrome.runtime.onMessage.addListener((message) => {
   if (message?.type === AUTO_CAPTURE_READY_MESSAGE) {
     consumeAutoCaptureIntent().catch((error) => {

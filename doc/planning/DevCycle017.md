@@ -1,6 +1,6 @@
 # DevCycle 017: Jump Straight to My LinkedIn Job Search
 
-**Status:** Planning
+**Status:** VERIFIED
 **Start Date:** 2026-07-21
 **Target Completion:** 2026-07-21
 **Focus:** Let the user open the first page of their configured LinkedIn job search in one click from the extension, instead of navigating to LinkedIn and pressing the "Show All" button manually.
@@ -28,13 +28,13 @@ Today the user's workflow starts by going to LinkedIn's home page and clicking t
 
 ### Phase 1: Define the Search Configuration
 
-**Status:** Planning
+**Status:** Work Complete
 
-- [ ] Add a shared settings module (e.g. `extension/shared/jobSearchSettings.js`) that loads, validates, and saves the search configuration, mirroring the structure of `extension/shared/recentPostingsSettings.js`.
-- [ ] Store, at minimum, `keywords` (string) and `geoId` (string); include the time window as `timeframeSeconds` with a default of `86400` (24 hours).
-- [ ] Provide sensible defaults seeded from the user's own URLs so the feature works immediately: `keywords = "Software Engineer"`, `geoId = "90000091"`, `timeframeSeconds = 86400`.
-- [ ] Validate on load/save: treat blank/whitespace `keywords` or `geoId` as "not configured" and fall back safely; keep `geoId` as an opaque string (do not coerce to a number or strip characters).
-- [ ] Expose async `loadJobSearchSettings()` / `saveJobSearchSettings(...)` and a `isJobSearchConfigured(settings)` helper.
+- [x] Add a shared settings module (e.g. `extension/shared/jobSearchSettings.js`) that loads, validates, and saves the search configuration, mirroring the structure of `extension/shared/recentPostingsSettings.js`.
+- [x] Store, at minimum, `keywords` (string) and `geoId` (string); include the time window as `timeframeSeconds` with a default of `86400` (24 hours).
+- [x] Provide sensible defaults seeded from the user's own URLs so the feature works immediately: `keywords = "Software Engineer"`, `geoId = "90000091"`, `timeframeSeconds = 86400`.
+- [x] Validate on load/save: treat blank/whitespace `keywords` or `geoId` as "not configured" and fall back safely; keep `geoId` as an opaque string (do not coerce to a number or strip characters).
+- [x] Expose async `loadJobSearchSettings()` / `saveJobSearchSettings(...)` and a `isJobSearchConfigured(settings)` helper.
 
 **Technical Notes:**
 
@@ -46,13 +46,13 @@ Follow the exact pattern already proven in `recentPostingsSettings.js`: a frozen
 
 ### Phase 2: Build the Canonical Search URL
 
-**Status:** Planning
+**Status:** Work Complete
 
-- [ ] Add a pure URL-builder (e.g. `extension/shared/searchUrlBuilder.js`) that takes the search configuration and returns the canonical LinkedIn search URL.
-- [ ] Emit only the reproducing parameters: `keywords`, `geoId`, and `f_TPR=r<timeframeSeconds>`. Do not emit `start` (page 1), `currentJobId`, `lipi`, `referralSearchId`, `originToLandingJobPostings`, `origin`, or `showHowYouFit`.
-- [ ] Encode `keywords` for a query string (spaces acceptable as `+` or `%20`; match a form LinkedIn accepts) and pass `geoId` through verbatim.
-- [ ] Return a clear signal (or throw a typed error) when the configuration is not usable, so the caller can route the user to Options rather than open a malformed URL.
-- [ ] Add focused unit tests: parameter presence, tracking-parameter absence, `geoId` verbatim preservation, keyword encoding, and `f_TPR` derived from `timeframeSeconds`.
+- [x] Add a pure URL-builder (e.g. `extension/shared/searchUrlBuilder.js`) that takes the search configuration and returns the canonical LinkedIn search URL.
+- [x] Emit only the reproducing parameters: `keywords`, `geoId`, and `f_TPR=r<timeframeSeconds>`. Do not emit `start` (page 1), `currentJobId`, `lipi`, `referralSearchId`, `originToLandingJobPostings`, `origin`, or `showHowYouFit`.
+- [x] Encode `keywords` for a query string (spaces acceptable as `+` or `%20`; match a form LinkedIn accepts) and pass `geoId` through verbatim.
+- [x] Return a clear signal (or throw a typed error) when the configuration is not usable, so the caller can route the user to Options rather than open a malformed URL.
+- [x] Add focused unit tests: parameter presence, tracking-parameter absence, `geoId` verbatim preservation, keyword encoding, and `f_TPR` derived from `timeframeSeconds`.
 
 **Technical Notes:**
 
@@ -65,13 +65,13 @@ Base URL is `https://www.linkedin.com/jobs/search-results/`. Prefer building the
 
 ### Phase 3: Add the Popup Navigation Action
 
-**Status:** Planning
+**Status:** Work Complete
 
-- [ ] Add a button to `extension/popup/popup.html` (e.g. "Open My Job Search"), placed where it reads as a primary navigation action without crowding the capture flow.
-- [ ] Wire it in `extension/popup/popup.js`: load the search settings, build the URL, and open it.
-- [ ] Decide and implement the open behavior (see Open Questions): default to opening the search in a new tab so no unrelated page is destroyed.
-- [ ] Guard the unconfigured case: if keywords or `geoId` are blank, do not navigate — show a status message and offer to open Options (`chrome.runtime.openOptionsPage()`), consistent with existing status messaging.
-- [ ] Confirm no `manifest.json` permission change is required: opening a URL in a new tab via `chrome.tabs.create({ url })` needs no extra permission, and the popup already runs on a user gesture. If reuse-the-active-tab is chosen instead, verify `chrome.tabs.update` behavior under the current `activeTab` grant before relying on it.
+- [x] Add a button to `extension/popup/popup.html` (e.g. "Open My Job Search"), placed where it reads as a primary navigation action without crowding the capture flow.
+- [x] Wire it in `extension/popup/popup.js`: load the search settings, build the URL, and open it.
+- [x] Decide and implement the open behavior (see Open Questions): default to opening the search in a new tab so no unrelated page is destroyed.
+- [x] Guard the unconfigured case: if keywords or `geoId` are blank, do not navigate — show a status message and offer to open Options (`chrome.runtime.openOptionsPage()`), consistent with existing status messaging.
+- [x] Confirm no `manifest.json` permission change is required: opening a URL in a new tab via `chrome.tabs.create({ url })` needs no extra permission, and the popup already runs on a user gesture. If reuse-the-active-tab is chosen instead, verify `chrome.tabs.update` behavior under the current `activeTab` grant before relying on it.
 
 **Technical Notes:**
 
@@ -84,12 +84,12 @@ Unlike the recent-postings scan and the proposed card-selection feature (`Fable_
 
 ### Phase 4: Options UI for the Search Configuration
 
-**Status:** Planning
+**Status:** Work Complete
 
-- [ ] Add a "Job Search" section to `extension/options/options.html` and `extension/options/options.js` for editing keywords and `geoId` (and, if exposed, the time window), following the pattern used for the Recent Postings age radio group.
-- [ ] Load current values on open, save on change/blur, and surface a small saved/failed status like `recentPostingsAgeStatus`.
-- [ ] Include brief helper text explaining where `geoId` comes from (copied from a LinkedIn search URL) and that it must be pasted verbatim.
-- [ ] Ensure blank input is handled predictably (persisted as "not configured" so the popup guard triggers rather than building a broken URL).
+- [x] Add a "Job Search" section to `extension/options/options.html` and `extension/options/options.js` for editing keywords and `geoId` (and, if exposed, the time window), following the pattern used for the Recent Postings age radio group.
+- [x] Load current values on open, save on change/blur, and surface a small saved/failed status like `recentPostingsAgeStatus`.
+- [x] Include brief helper text explaining where `geoId` comes from (copied from a LinkedIn search URL) and that it must be pasted verbatim.
+- [x] Ensure blank input is handled predictably (persisted as "not configured" so the popup guard triggers rather than building a broken URL).
 
 **Technical Notes:**
 
@@ -102,15 +102,15 @@ The options page already demonstrates the load-render-save-log loop for a stored
 
 ### Phase 5: Verification and Documentation
 
-**Status:** Planning
+**Status:** Work Complete
 
-- [ ] Run syntax checks on all changed JavaScript (`node --check`).
-- [ ] Run the new URL-builder and settings tests, plus the existing scanner and persistence regression suites, and confirm no regressions.
+- [x] Run syntax checks on all changed JavaScript (`node --check`).
+- [x] Run the new URL-builder and settings tests, plus the existing scanner and persistence regression suites, and confirm no regressions.
 - [ ] Manually verify on a live browser that the button opens the correct LinkedIn first page for the configured search, and that the unconfigured guard routes to Options.
 - [ ] Manually verify the action does not disturb the currently active tab's content (given the chosen new-tab behavior).
-- [ ] Update `extension/README.md` to document the "Open My Job Search" action and the Job Search options.
-- [ ] Bump `extension/manifest.json` version to `0.0.17.0` for reload verification.
-- [ ] Record chosen behaviors, test results, and any live-verification notes in this document's Completion Summary.
+- [x] Update `extension/README.md` to document the "Open My Job Search" action and the Job Search options.
+- [x] Bump `extension/manifest.json` version to `0.0.17.0` for reload verification.
+- [x] Record chosen behaviors, test results, and any live-verification notes in this document's Completion Summary.
 
 **Technical Notes:**
 
@@ -160,18 +160,59 @@ ED: For V1, use the keywords and geoid that are listed in the samples in DC17ide
 
 ## Completion Summary
 
-*Fill in when the cycle closes. Move this document to `doc/planning/completed/` afterward.*
+*Implementation complete; awaiting user verification on a live LinkedIn/Options session before this cycle is marked `Verified` and moved to `completed/`.*
 
-**Completion Date:** [YYYY-MM-DD]
-**Phases Completed:** [List or "All"]
-**Work Deferred:** [What was not done and why, or "None"]
+**Completion Date:** 2026-07-21
+**Phases Completed:** Phases 1–4 fully; Phase 5 implementation and automated checks complete, live browser verification pending.
+**Work Deferred:** None from this cycle's scope. Ideas 1, 2, and 4 from `DC17ideas.md` remain intentionally out of scope, as planned.
 
 **Accomplishments:**
-- [What was built or changed]
+
+- Added `extension/shared/jobSearchSettings.js`: a `chrome.storage.local`-backed settings module (`loadJobSearchSettings`, `saveJobSearchSettings`, `isJobSearchConfigured`) storing `keywords`, `geoId` (verbatim, never coerced), and `timeframeSeconds`, defaulting to `Software Engineer` / `90000091` / `86400` per the user's confirmed V1 choice (values taken directly from the samples in `DC17ideas.md`).
+- Added `extension/shared/searchUrlBuilder.js`: a pure `buildJobSearchUrl(settings)` that emits only `keywords`, `geoId`, and `f_TPR=r<timeframeSeconds>` against `https://www.linkedin.com/jobs/search-results/`, throwing when the configuration is blank.
+- Added an "Open My Job Search" button to the popup (`popup.html`/`popup.js`) that loads settings, builds the URL, and opens it via `chrome.tabs.create` in a new tab; an unconfigured search shows a status message and opens Options instead of navigating.
+- Added a "Job Search" panel to Options (`options.html`/`options.js`/`options.css`) with `Keywords` and `geoId` text fields that load on open and save on change, mirroring the existing Recent Postings age-setting lifecycle.
+- Added `extension/tests/searchUrlBuilder.test.mjs` covering parameter presence, absence of all tracking parameters (`start`, `currentJobId`, `lipi`, `referralSearchId`, `originToLandingJobPostings`, `origin`, `showHowYouFit`), verbatim `geoId` passthrough, custom timeframe, and blank-configuration errors.
+- Extended `extension/tests/persistence.test.mjs` with job-search settings coverage (defaults, storage-unavailable fallback, save/load round-trip, blank-value persistence as unconfigured).
+- Updated `extension/README.md` with a "Job Search Shortcut" section, the new file layout entries, and the new local-check commands.
+- Bumped `extension/manifest.json` to `0.0.17.0`.
+- No `manifest.json` permission changes were required, confirming the Phase 3 assumption: `chrome.tabs.create({ url })` needs no additional permission beyond what the extension already declares.
 
 **Metrics:**
-- Files modified: [N]
-- [Other relevant measure]
+
+- Files added: 4 (`jobSearchSettings.js`, `searchUrlBuilder.js`, `searchUrlBuilder.test.mjs`, this DevCycle document)
+- Files modified: 7 (`popup.html`, `popup.js`, `options.html`, `options.js`, `options.css`, `persistence.test.mjs`, `README.md`, `manifest.json`) — 8 including the manifest
+- Automated checks: all `node --check` syntax checks pass; `captureActivePage.smoke.test.mjs`, `persistence.test.mjs`, and `searchUrlBuilder.test.mjs` all pass
 
 **Lessons / Notes:**
-[Anything worth remembering for future cycles.]
+
+- This is the first extension feature that is plain `chrome.tabs` navigation rather than `chrome.scripting.executeScript({ func })` injection — it does not need the DC13 self-contained-injection discipline or an injection-isolation test, which kept the implementation notably smaller than the scan/highlight features.
+- The settings/URL-builder split (Phase 1 vs. Phase 2) kept both modules pure and easily unit-testable without any DOM or `chrome.tabs` mocking.
+- Live verification on an actual LinkedIn/Options session is still required per the project's verification standard before this cycle can move to `Verified`.
+
+---
+
+### Phase 2: Rename the Popup Button
+
+**Status:** Work Complete
+
+- [x] Rename the popup button label from `Open My Job Search` to `Open Job Search`.
+- [x] Update the matching reference in the Options helper text (`options.html`).
+- [x] Update the matching references in `extension/README.md`.
+- [x] Confirm no test or code depends on the button's visible text (lookups are by element `id`), so no test changes were needed.
+- [x] Re-run syntax checks and the automated test suites to confirm no regression.
+- [x] Bump `extension/manifest.json` version to `0.0.17.1` for reload verification.
+
+**Technical Notes:**
+
+Purely a label change — `id="openJobSearchButton"` and all wiring in `popup.js` are unchanged. Files touched: `extension/popup/popup.html`, `extension/options/options.html`, `extension/README.md`.
+
+---
+
+## Follow-Up Note (User, live verification)
+
+On first live use, the "Open Job Search" button correctly opened LinkedIn, but it landed on the **generic 24-hour keyword search** rather than the **premium/"top applicant" search** the user actually uses day to day (the `origin=QUALIFICATION_LANDING` "Show All" surface referenced in `doc/ideas/DC17ideas.md`). This matches how the feature was scoped and built — DC17 deliberately targeted the plain, reconstructable search (Idea 3's URL 3/URL 4 form) and intentionally excluded the rotating, tracking-token-bearing "Show All" URL, per the `DC17ideas.md` analysis.
+
+**The user does not object to this** — the generic keyword-search shortcut is useful on its own and stays as shipped, just relabeled (see Phase 2 above) to "Open Job Search" so it no longer implies it is the user's one specific premium search.
+
+**What the user actually wanted for DC17** — one-click access to the premium/"top applicant" search — will be scoped and planned as a new cycle, **DC18**, rather than folded into this one. DC17 is considered complete as the "generic search shortcut" feature; DC18 will investigate whether the premium search surface can be reproduced reliably (open question: is `originToLandingJobPostings` required to reach that surface, or can `origin=QUALIFICATION_LANDING` alone with a fresh job-ID set work, given that set rotates every few minutes per the DC17ideas.md analysis).

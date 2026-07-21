@@ -40,6 +40,12 @@ import {
   recentPostingsAgeOptions,
   saveRecentPostingsAgeSetting
 } from '../shared/recentPostingsSettings.js';
+import {
+  DEFAULT_JOB_SEARCH_SETTINGS,
+  isJobSearchConfigured,
+  loadJobSearchSettings,
+  saveJobSearchSettings
+} from '../shared/jobSearchSettings.js';
 
 function assert(condition, message) {
   if (!condition) {
@@ -411,6 +417,39 @@ async function runRecentPostingsSettingsTests() {
   delete globalThis.chrome;
 }
 
+async function runJobSearchSettingsTests() {
+  assert(isJobSearchConfigured(DEFAULT_JOB_SEARCH_SETTINGS) === true, 'Expected default job search settings to be configured.');
+  assert(isJobSearchConfigured({ keywords: '', geoId: '90000091' }) === false, 'Expected blank keywords to be unconfigured.');
+  assert(isJobSearchConfigured({ keywords: 'Engineer', geoId: '  ' }) === false, 'Expected blank geoId to be unconfigured.');
+
+  delete globalThis.chrome;
+  const defaultedSettings = await loadJobSearchSettings();
+  assert(
+    defaultedSettings.keywords === DEFAULT_JOB_SEARCH_SETTINGS.keywords &&
+      defaultedSettings.geoId === DEFAULT_JOB_SEARCH_SETTINGS.geoId &&
+      defaultedSettings.timeframeSeconds === DEFAULT_JOB_SEARCH_SETTINGS.timeframeSeconds,
+    `Expected defaults when chrome.storage is unavailable, got ${JSON.stringify(defaultedSettings)}.`
+  );
+
+  globalThis.chrome = { storage: { local: fakeChromeStorageLocal() } };
+  const initialSettings = await loadJobSearchSettings();
+  assert(initialSettings.keywords === DEFAULT_JOB_SEARCH_SETTINGS.keywords, 'Expected default keywords with no saved value.');
+
+  const saved = await saveJobSearchSettings({ keywords: '  Backend Engineer  ', geoId: '12345', timeframeSeconds: 7200 });
+  assert(saved.keywords === 'Backend Engineer', `Expected trimmed keywords, got "${saved.keywords}".`);
+  assert(saved.geoId === '12345', `Expected verbatim geoId, got "${saved.geoId}".`);
+  assert(saved.timeframeSeconds === 7200, `Expected saved timeframe, got ${saved.timeframeSeconds}.`);
+
+  const persisted = await loadJobSearchSettings();
+  assert(persisted.keywords === 'Backend Engineer', 'Expected persisted keywords to be restored.');
+  assert(persisted.geoId === '12345', 'Expected persisted geoId to be restored.');
+
+  const blankSaved = await saveJobSearchSettings({ keywords: '   ', geoId: '12345', timeframeSeconds: 86400 });
+  assert(isJobSearchConfigured(blankSaved) === false, 'Expected blank keywords to persist as unconfigured rather than falling back to defaults.');
+
+  delete globalThis.chrome;
+}
+
 runCsvTests();
 runFilenameTests();
 runPriorCompanyCacheTests();
@@ -419,5 +458,6 @@ await runProjectPermissionTests();
 await runSaveCaptureRecordTest();
 await runAppendCaptureRecordToCsvTest();
 await runRecentPostingsSettingsTests();
+await runJobSearchSettingsTests();
 
 console.log('persistence helper tests passed');
