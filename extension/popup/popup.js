@@ -358,8 +358,9 @@ async function openJobSearchUrl(buildUrl, failureTitle) {
   }
 
   try {
+    const tab = await getActiveTab();
     const url = buildUrl(settings);
-    await chrome.tabs.create({ url });
+    await chrome.tabs.update(tab.id, { url });
   } catch (error) {
     setStatus('error', failureTitle, error.message || String(error));
   }

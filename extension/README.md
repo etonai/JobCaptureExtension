@@ -22,7 +22,7 @@ Implemented in the current shell:
 - user-entered notes saved to JSON and the CSV `notes` column
 - prior company warning after capture when the company already appears in `old-tracking.txt` or `job-tracking.csv`
 - popup recent-postings summary for visible LinkedIn listings posted within a user-configurable age (`2 hours or less` by default, or `1 hour or less` / `less than 1 hour` from Options); rows sourced from a results-list card are prefixed with the card's position in the left-hand list (e.g. `5 Armada`)
-- popup "Open Job Search" action that opens the first page of a user-configured LinkedIn search (keywords + geoId) in a new tab, built from stable URL parameters only
+- popup "Open Job Search" action that navigates the active tab to the first page of a user-configured LinkedIn search (keywords + geoId), built from stable URL parameters only
 - popup "Next Page" action that advances the active LinkedIn results tab by 25 results in place, working identically on generic and premium search surfaces
 - Recent Postings header refresh button that re-runs the postings scan on demand, so the list can be updated after "Next Page" without closing and reopening the popup
 
@@ -127,10 +127,10 @@ Options has a Job Search panel with `Keywords` and `geoId` fields, stored in `ch
 
 The popup has two buttons side by side that share this configuration:
 
-- **Open Job Search** builds a search-results URL from only the parameters that determine the results (`keywords`, `geoId`, `f_TPR=r86400` for a 24-hour window) and opens it in a new tab. It intentionally omits LinkedIn's tracking and context parameters (`origin`, `originToLandingJobPostings`, `referralSearchId`, `lipi`, `currentJobId`, `showHowYouFit`, `start`), which are unnecessary for reproducing the search and, in the case of `originToLandingJobPostings`, rotate on every page view.
+- **Open Job Search** builds a search-results URL from only the parameters that determine the results (`keywords`, `geoId`, `f_TPR=r86400` for a 24-hour window) and navigates the active tab to it in place. It intentionally omits LinkedIn's tracking and context parameters (`origin`, `originToLandingJobPostings`, `referralSearchId`, `lipi`, `currentJobId`, `showHowYouFit`, `start`), which are unnecessary for reproducing the search and, in the case of `originToLandingJobPostings`, rotate on every page view.
 - **Open Premium Job Search** builds the same URL plus `origin=QUALIFICATION_LANDING` and the cosmetic `showHowYouFit=HOW_YOU_FIT`, aiming to reproduce LinkedIn's "Show All" premium/top-applicant surface. It still omits the rotating `originToLandingJobPostings` job-ID set and the per-session `referralSearchId`/`lipi` tokens, since the extension cannot legitimately fabricate those; whether `origin=QUALIFICATION_LANDING` alone is sufficient to reach the premium surface is a live-verification result, not a guarantee.
 
-If keywords or `geoId` are blank, either button shows a status message and opens Options instead of navigating to a broken search.
+Both buttons navigate the active tab in place (via `chrome.tabs.update`) rather than opening a new tab, so repeated clicks reuse the same tab instead of accumulating new ones. If keywords or `geoId` are blank, either button shows a status message and opens Options instead of navigating to a broken search.
 
 ## Next Page Button
 
