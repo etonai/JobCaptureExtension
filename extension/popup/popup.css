@@ -152,6 +152,19 @@ h2 {
   font-size: 14px;
 }
 
+.recent-postings-header-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.recent-postings-refresh {
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  font-size: 13px;
+  line-height: 1;
+}
+
 .recent-postings-count {
   flex: 0 0 auto;
   border-radius: 999px;

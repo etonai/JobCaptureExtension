@@ -19,7 +19,10 @@
     <section id="recentPostingsPanel" class="recent-postings-panel" aria-label="Recent job postings">
       <div class="recent-postings-header">
         <h2>Recent Postings</h2>
-        <span id="recentPostingsCount" class="recent-postings-count">Checking</span>
+        <div class="recent-postings-header-controls">
+          <button id="refreshRecentPostingsButton" class="icon-button recent-postings-refresh" type="button" title="Refresh recent postings" aria-label="Refresh recent postings">↻</button>
+          <span id="recentPostingsCount" class="recent-postings-count">Checking</span>
+        </div>
       </div>
       <p id="recentPostingsMessage" class="recent-postings-message">Scanning the active LinkedIn tab.</p>
       <ul id="recentPostingsList" class="recent-postings-list hidden"></ul>

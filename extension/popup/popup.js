@@ -22,6 +22,7 @@ const elements = {
   openJobSearchButton: document.querySelector('#openJobSearchButton'),
   openPremiumJobSearchButton: document.querySelector('#openPremiumJobSearchButton'),
   nextPageButton: document.querySelector('#nextPageButton'),
+  refreshRecentPostingsButton: document.querySelector('#refreshRecentPostingsButton'),
   recentPostingsPanel: document.querySelector('#recentPostingsPanel'),
   recentPostingsCount: document.querySelector('#recentPostingsCount'),
   recentPostingsMessage: document.querySelector('#recentPostingsMessage'),
@@ -85,7 +86,15 @@ function setRecentPostingsState(kind, message, listings = []) {
   }
 }
 
+let recentPostingsScanInFlight = false;
+
 async function scanRecentPostings() {
+  if (recentPostingsScanInFlight) {
+    return;
+  }
+
+  recentPostingsScanInFlight = true;
+  elements.refreshRecentPostingsButton.disabled = true;
   setRecentPostingsState('loading', 'Scanning the active LinkedIn tab.');
 
   try {
@@ -124,6 +133,9 @@ async function scanRecentPostings() {
     setRecentPostingsState('ready', `${listings.length} recent ${noun} found.${cardSuffix}`, listings);
   } catch (error) {
     setRecentPostingsState('error', error.message || String(error));
+  } finally {
+    recentPostingsScanInFlight = false;
+    elements.refreshRecentPostingsButton.disabled = false;
   }
 }
 
@@ -371,7 +383,7 @@ async function goToNextPage() {
 
     const url = nextPageUrl(tab.url);
     await chrome.tabs.update(tab.id, { url });
-    setStatus('capturing', 'Advancing Page', 'Loading the next page of results. Reopen the popup to rescan recent postings.');
+    setStatus('capturing', 'Advancing Page', 'Loading the next page of results. Once it loads, click the Recent Postings refresh button to rescan.');
   } catch (error) {
     setStatus('error', 'Next Page Failed', error.message || String(error));
   }
@@ -459,6 +471,7 @@ elements.optionsButton.addEventListener('click', openOptions);
 elements.openJobSearchButton.addEventListener('click', openJobSearch);
 elements.openPremiumJobSearchButton.addEventListener('click', openPremiumJobSearch);
 elements.nextPageButton.addEventListener('click', goToNextPage);
+elements.refreshRecentPostingsButton.addEventListener('click', scanRecentPostings);
 chrome.runtime.onMessage.addListener((message) => {
   if (message?.type === AUTO_CAPTURE_READY_MESSAGE) {
     consumeAutoCaptureIntent().catch((error) => {

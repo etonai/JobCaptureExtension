@@ -24,6 +24,7 @@ Implemented in the current shell:
 - popup recent-postings summary for visible LinkedIn listings posted within a user-configurable age (`2 hours or less` by default, or `1 hour or less` / `less than 1 hour` from Options); rows sourced from a results-list card are prefixed with the card's position in the left-hand list (e.g. `5 Armada`)
 - popup "Open Job Search" action that opens the first page of a user-configured LinkedIn search (keywords + geoId) in a new tab, built from stable URL parameters only
 - popup "Next Page" action that advances the active LinkedIn results tab by 25 results in place, working identically on generic and premium search surfaces
+- Recent Postings header refresh button that re-runs the postings scan on demand, so the list can be updated after "Next Page" without closing and reopening the popup
 
 It does not implement the final editable review UI. The Save action writes the current captured parser result; DevCycle006 will add richer field editing before save.
 
@@ -135,7 +136,11 @@ If keywords or `geoId` are blank, either button shows a status message and opens
 
 The popup's "Next Page" button advances the active LinkedIn results tab by one page (25 results) in place, by reading the tab's current URL and incrementing its `start` query parameter — the only parameter LinkedIn uses for pagination. Because it only rewrites `start` and preserves every other parameter, it works identically whether the tab came from "Open Job Search" (generic), "Open Premium Job Search" (premium), or any other LinkedIn `jobs/search-results` page: page 1 (no `start`) advances to `start=25`, `start=25` advances to `start=50`, and so on. `currentJobId` is dropped on advance so LinkedIn selects the first card of the new page rather than reopening a stale detail pane.
 
-If the active tab is not a LinkedIn search-results page, the button shows a status message and does not navigate. After advancing, reopen the popup to rescan recent postings on the new page — the button does not auto-rescan, since the tab navigation is asynchronous and the new page has not loaded when the button returns. LinkedIn's result list is capped at roughly 1000 results (~40 pages); past that point the list is simply empty.
+If the active tab is not a LinkedIn search-results page, the button shows a status message and does not navigate. After advancing, wait for the new page to finish loading, then click the Recent Postings refresh button (see below) to rescan — "Next Page" does not auto-rescan, since the tab navigation is asynchronous and the new page has not loaded when the button returns. LinkedIn's result list is capped at roughly 1000 results (~40 pages); past that point the list is simply empty.
+
+## Recent Postings Refresh
+
+The Recent Postings header has a small "↻" refresh button next to the count badge. Clicking it re-runs the same scan that runs automatically when the popup opens (`scanRecentPostings`), updating the list, count, and on-page highlights against whatever the active tab currently shows. This exists specifically to recover from the staleness "Next Page" introduces: after advancing to a new results page, the Recent Postings panel still reflects the old page until either the popup is closed and reopened or refresh is clicked. The button disables itself while a scan is in flight so repeated clicks cannot start overlapping scans.
 
 ## Local Checks
 
