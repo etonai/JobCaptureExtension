@@ -89,3 +89,19 @@ One implementation reminder from DC13, which `Fable_first-select.md` also stress
 
 DC 17: Idea 3
 DC 18: Idea 1
+
+## Edward comment after DC 17
+DC 17 was mostly successful, but it took me to a generic page
+https://www.linkedin.com/jobs/search-results/?currentJobId=4442297213&keywords=Software%20Engineer&geoId=90000091&f_TPR=r86400
+
+Is just a page with keywords and the 24 hour limit. But it looks like it is not the PREMIUM page like that.
+
+The premium one looks like this:
+https://www.linkedin.com/jobs/search-results/?currentJobId=4443011974&showHowYouFit=HOW_YOU_FIT&keywords=Software%20Engineer&origin=QUALIFICATION_LANDING&referralSearchId=WrpjhhVHZRUEhCSp%2BuALaQ%3D%3D&originToLandingJobPostings=4443011974%2C4443023474%2C4438701013&geoId=90000091&f_TPR=r86400
+
+And is actually different. I don't know how much better it is, but it might be better. I should be able to go to both.
+
+So the new DC 18 will be Idea 3 but the way I wanted it in the beginning. "Open Premium Job Search" and it will filter by the 24 hour limit.
+
+We'll push idea 1 to DC 19.
+
