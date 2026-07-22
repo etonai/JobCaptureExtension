@@ -1,4 +1,4 @@
-import { isLinkedInJobSearchUrl, nextPageUrl } from '../shared/pagingUrl.js';
+import { getNextStart, isLinkedInJobSearchUrl, nextPageUrl } from '../shared/pagingUrl.js';
 
 function assert(condition, message) {
   if (!condition) {
@@ -50,6 +50,20 @@ function runNextPageUrlTests() {
   assert(blankNext.searchParams.get('start') === '25', 'Expected blank start to reset to 25.');
 }
 
+function runGetNextStartTests() {
+  const noStart = 'https://www.linkedin.com/jobs/search-results/?keywords=Software+Engineer&geoId=90000091';
+  assert(getNextStart(noStart) === 25, 'Expected a URL with no start param to yield a next start of 25.');
+
+  const start25 = 'https://www.linkedin.com/jobs/search-results/?keywords=Software+Engineer&geoId=90000091&start=25';
+  assert(getNextStart(start25) === 50, 'Expected start=25 to yield a next start of 50.');
+
+  const nonNumericStart = 'https://www.linkedin.com/jobs/search-results/?keywords=Software+Engineer&geoId=90000091&start=notanumber';
+  assert(getNextStart(nonNumericStart) === 25, 'Expected non-numeric start to yield a next start of 25.');
+
+  const negativeStart = 'https://www.linkedin.com/jobs/search-results/?keywords=Software+Engineer&geoId=90000091&start=-10';
+  assert(getNextStart(negativeStart) === 25, 'Expected negative start to yield a next start of 25.');
+}
+
 function runIsLinkedInJobSearchUrlTests() {
   assert(isLinkedInJobSearchUrl(DC17_GENERIC_URL) === true, 'Expected DC17 generic URL to be recognized as a search-results URL.');
   assert(isLinkedInJobSearchUrl(DC18_PREMIUM_URL) === true, 'Expected DC18 premium URL to be recognized as a search-results URL.');
@@ -65,6 +79,7 @@ function runIsLinkedInJobSearchUrlTests() {
 }
 
 runNextPageUrlTests();
+runGetNextStartTests();
 runIsLinkedInJobSearchUrlTests();
 
 console.log('pagingUrl tests passed');

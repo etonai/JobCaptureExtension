@@ -5,7 +5,7 @@ import { appendCaptureRecordToCsv, OTHER_LISTINGS_CSV_FILENAME, saveCaptureRecor
 import { getRecentPostingsAgeConfig, loadRecentPostingsAgeSetting } from '../shared/recentPostingsSettings.js';
 import { isJobSearchConfigured, loadJobSearchSettings } from '../shared/jobSearchSettings.js';
 import { buildJobSearchUrl, buildPremiumJobSearchUrl } from '../shared/searchUrlBuilder.js';
-import { isLinkedInJobSearchUrl, nextPageUrl } from '../shared/pagingUrl.js';
+import { getNextStart, isLinkedInJobSearchUrl, nextPageUrl } from '../shared/pagingUrl.js';
 
 const AUTO_CAPTURE_INTENT_KEY = 'popupIntent';
 const AUTO_CAPTURE_INTENT_TTL_MS = 10_000;
@@ -101,6 +101,7 @@ async function scanRecentPostings() {
     const ageValue = await loadRecentPostingsAgeSetting();
     const ageConfig = getRecentPostingsAgeConfig(ageValue);
     const tab = await getActiveTab();
+    updateNextPageButtonLabel(tab);
     const [injectionResult] = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
       func: captureRecentJobPostings,
@@ -374,6 +375,16 @@ function openPremiumJobSearch() {
   return openJobSearchUrl(buildPremiumJobSearchUrl, 'Open Premium Job Search Failed');
 }
 
+const NEXT_PAGE_DEFAULT_LABEL = 'Next Page';
+
+function updateNextPageButtonLabel(tab) {
+  if (tab?.url && isLinkedInJobSearchUrl(tab.url)) {
+    elements.nextPageButton.textContent = `${NEXT_PAGE_DEFAULT_LABEL} (results ${getNextStart(tab.url)}+)`;
+  } else {
+    elements.nextPageButton.textContent = NEXT_PAGE_DEFAULT_LABEL;
+  }
+}
+
 async function goToNextPage() {
   try {
     const tab = await getActiveTab();
@@ -384,6 +395,7 @@ async function goToNextPage() {
 
     const url = nextPageUrl(tab.url);
     await chrome.tabs.update(tab.id, { url });
+    updateNextPageButtonLabel({ url });
     setStatus('capturing', 'Advancing Page', 'Loading the next page of results. Once it loads, click the Recent Postings refresh button to rescan.');
   } catch (error) {
     setStatus('error', 'Next Page Failed', error.message || String(error));

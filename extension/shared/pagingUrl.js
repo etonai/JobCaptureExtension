@@ -10,10 +10,15 @@ export function isLinkedInJobSearchUrl(url) {
   }
 }
 
+export function getNextStart(url) {
+  const parsed = new URL(url);
+  const currentStart = Number(parsed.searchParams.get('start'));
+  return (Number.isFinite(currentStart) && currentStart > 0 ? currentStart : 0) + RESULTS_PER_PAGE;
+}
+
 export function nextPageUrl(currentUrl) {
   const parsed = new URL(currentUrl);
-  const currentStart = Number(parsed.searchParams.get('start'));
-  const nextStart = (Number.isFinite(currentStart) && currentStart > 0 ? currentStart : 0) + RESULTS_PER_PAGE;
+  const nextStart = getNextStart(currentUrl);
 
   parsed.searchParams.set('start', String(nextStart));
   parsed.searchParams.delete('currentJobId');
