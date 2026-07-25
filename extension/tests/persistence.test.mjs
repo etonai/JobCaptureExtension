@@ -333,18 +333,22 @@ async function runReservationTests() {
 
 function runPriorCompanyCacheTests() {
   const cache = {
-    oldTrackingText: 'OpenAI\nStarbucks\n',
-    csvText: `${CSV_HEADER_TEXT}${serializeRecordCsvRow(sampleRecord({ company: 'EasyPost', captureDateLocal: '2026-07-08' }))}`,
+    oldTrackingText: 'OpenAI\nStarbucks\nNordstrom\n',
+    csvText: `${CSV_HEADER_TEXT}${serializeRecordCsvRow(sampleRecord({ company: 'EasyPost', captureDateLocal: '2026-07-08' }))}${serializeRecordCsvRow(sampleRecord({ company: 'Nordstrom', captureDateLocal: '2026-07-10' }))}`,
     refreshedAt: '2026-07-13T12:00:00.000Z'
   };
 
   const oldTrackingWarning = findPriorCompanyInCache(cache, sampleRecord({ company: 'Starbucks, Inc.' }));
-  assert(oldTrackingWarning?.source === 'old-tracking', 'Expected cached old-tracking match to be preferred.');
+  assert(oldTrackingWarning?.source === 'old-tracking', 'Expected old-tracking match when the company is only in old-tracking.txt.');
   assert(oldTrackingWarning.count === 1, 'Expected cached old-tracking match count.');
 
   const csvWarning = findPriorCompanyInCache(cache, sampleRecord({ company: 'EasyPost' }));
   assert(csvWarning?.source === 'csv', 'Expected cached CSV match.');
   assert(csvWarning.mostRecentDate === '2026-07-08', 'Expected cached CSV most recent date.');
+
+  const bothSourcesWarning = findPriorCompanyInCache(cache, sampleRecord({ company: 'Nordstrom' }));
+  assert(bothSourcesWarning?.source === 'csv', 'Expected job-tracking.csv match to be preferred over old-tracking.txt when both match.');
+  assert(bothSourcesWarning.mostRecentDate === '2026-07-10', 'Expected the CSV most recent date, not the old-tracking summary, when both sources match.');
 
   const missingWarning = findPriorCompanyInCache(cache, sampleRecord({ company: 'Unknown Company' }));
   assert(missingWarning === null, 'Expected no cached warning for unknown company.');

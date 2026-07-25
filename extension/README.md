@@ -20,7 +20,7 @@ Implemented in the current shell:
 - `job-tracking.csv` creation/header validation/append
 - unsupported-page, save-success, save-error, and partial-success states
 - user-entered notes saved to JSON and the CSV `notes` column
-- prior company warning after capture when the company already appears in `old-tracking.txt` or `job-tracking.csv`
+- prior company warning after capture when the company already appears in `old-tracking.txt` or `job-tracking.csv`; when a company appears in both, `job-tracking.csv` (entry count and most recent capture date) is shown, since it is more actionable than the dateless `old-tracking.txt` entry
 - popup recent-postings summary for visible LinkedIn listings posted within a user-configurable age (`2 hours or less` by default, or `1 hour or less` / `less than 1 hour` from Options); rows sourced from a results-list card are prefixed with the card's position in the left-hand list (e.g. `5 Armada`)
 - popup "Open Job Search" action that navigates the active tab to the first page of a user-configured LinkedIn search (keywords + geoId), built from stable URL parameters only
 - popup "Next Page" action that advances the active LinkedIn results tab by 25 results in place, working identically on generic and premium search surfaces, with the button label showing the destination results number (e.g. `Next Page (results 25+)`)

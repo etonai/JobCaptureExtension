@@ -17,14 +17,14 @@ export function findPriorCompanyInCache(cache, record) {
     return null;
   }
 
-  const oldTrackingSummary = findOldTrackingCompany(cache.oldTrackingText || '', record.company);
-  if (oldTrackingSummary.count > 0) {
-    return { ...oldTrackingSummary, source: 'old-tracking', cached: true };
-  }
-
   const csvSummary = findPriorCompanyCaptures(cache.csvText || '', record.company);
   if (csvSummary.count > 0) {
     return { ...csvSummary, source: 'csv', cached: true };
+  }
+
+  const oldTrackingSummary = findOldTrackingCompany(cache.oldTrackingText || '', record.company);
+  if (oldTrackingSummary.count > 0) {
+    return { ...oldTrackingSummary, source: 'old-tracking', cached: true };
   }
 
   return null;
