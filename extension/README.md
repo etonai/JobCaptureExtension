@@ -25,6 +25,7 @@ Implemented in the current shell:
 - popup "Open Job Search" action that navigates the active tab to the first page of a user-configured LinkedIn search (keywords + geoId), built from stable URL parameters only
 - popup "Next Page" action that advances the active LinkedIn results tab by 25 results in place, working identically on generic and premium search surfaces, with the button label showing the destination results number (e.g. `Next Page (results 25+)`)
 - Recent Postings header refresh button that re-runs the postings scan on demand, so the list can be updated after "Next Page" without closing and reopening the popup
+- persistent `host_permissions` grant for `https://www.linkedin.com/*`, so script injection works immediately after the extension's own "Open Job Search" / "Open Premium Job Search" / "Next Page" navigations without requiring the popup to be closed and reopened
 
 It does not implement the final editable review UI. The Save action writes the current captured parser result; DevCycle006 will add richer field editing before save.
 
@@ -143,6 +144,10 @@ If the active tab is not a LinkedIn search-results page, the button shows a stat
 ## Recent Postings Refresh
 
 The Recent Postings header has a small "↻" refresh button next to the count badge. Clicking it re-runs the same scan that runs automatically when the popup opens (`scanRecentPostings`), updating the list, count, and on-page highlights against whatever the active tab currently shows; it also refreshes the "Next Page" button's results-number label from that same tab read, so the label stays in sync even if the user paged LinkedIn's own controls directly. This exists specifically to recover from the staleness "Next Page" introduces: after advancing to a new results page, the Recent Postings panel still reflects the old page until either the popup is closed and reopened or refresh is clicked. The button disables itself while a scan is in flight so repeated clicks cannot start overlapping scans.
+
+## Permissions
+
+The manifest requests `activeTab`, `scripting`, and `storage`, plus a persistent `host_permissions` grant for `https://www.linkedin.com/*`. The host permission exists because `activeTab`'s temporary access grant is tied to a user gesture on the extension's action (e.g. opening the popup) and does not survive the extension navigating the tab itself: clicking "Open Job Search", "Open Premium Job Search", or "Next Page" calls `chrome.tabs.update` to change the active tab's URL, which invalidates any `activeTab` grant from that popup session. Without a standing host permission, a same-session click of the Recent Postings refresh button after one of those navigations would fail with `Cannot access contents of the page. Extension manifest must request permission to access the respective host.`, since refreshing inside an already-open popup is not itself a fresh action-invocation gesture. `host_permissions` for `www.linkedin.com` removes that dependency for the one host the extension actually operates on.
 
 ## Local Checks
 
