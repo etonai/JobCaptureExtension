@@ -23,6 +23,7 @@ Implemented in the current shell:
 - prior company warning after capture when the company already appears in `old-tracking.txt` or `job-tracking.csv`; when a company appears in both, `job-tracking.csv` (entry count and most recent capture date) is shown, since it is more actionable than the dateless `old-tracking.txt` entry
 - popup recent-postings summary for visible LinkedIn listings posted within a user-configurable age (`2 hours or less` by default, or `1 hour or less` / `less than 1 hour` from Options); rows sourced from a results-list card are prefixed with the card's position in the left-hand list (e.g. `5 Armada`)
 - popup "Open Job Search" action that navigates the active tab to the first page of a user-configured LinkedIn search (keywords + geoId), built from stable URL parameters only
+- every "Open Job Search" / "Open Premium Job Search" press appends a `search-tracking.csv` row (local timestamp + which button was pressed), created with a header on first use; the write is best-effort and never blocks or fails the navigation itself
 - popup "Next Page" action that advances the active LinkedIn results tab by 25 results in place, working identically on generic and premium search surfaces, with the button label showing the destination results number (e.g. `Next Page (results 25+)`)
 - Recent Postings header refresh button that re-runs the postings scan on demand, so the list can be updated after "Next Page" without closing and reopening the popup
 - persistent `host_permissions` grant for `https://www.linkedin.com/*`, so script injection works immediately after the extension's own "Open Job Search" / "Open Premium Job Search" / "Next Page" navigations without requiring the popup to be closed and reopened
@@ -101,6 +102,7 @@ edge://extensions/shortcuts
 ```text
 Job Search Project/
   job-tracking.csv
+  search-tracking.csv
   old-tracking.txt
   saved-listings/
     starbucks_2026-07-05_software-engineer-sr_123456789.json

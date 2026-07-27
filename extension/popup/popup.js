@@ -1,7 +1,14 @@
 import { captureActivePage, captureRecentJobPostings } from '../content/captureActivePage.js';
 import { ensureProjectReadPermission, getProjectFolderStatus, getStoredProjectFolder } from '../shared/projectFolderStore.js';
 import { findCachedPriorCompanyWarning, findPriorCompanyInCache, refreshPriorCompanyCache } from '../shared/priorCompanyCache.js';
-import { appendCaptureRecordToCsv, OTHER_LISTINGS_CSV_FILENAME, saveCaptureRecord } from '../shared/saveListing.js';
+import {
+  appendCaptureRecordToCsv,
+  appendSearchTrackingRow,
+  OTHER_LISTINGS_CSV_FILENAME,
+  saveCaptureRecord,
+  SEARCH_TYPE_JOB_SEARCH,
+  SEARCH_TYPE_PREMIUM_JOB_SEARCH
+} from '../shared/saveListing.js';
 import { getRecentPostingsAgeConfig, loadRecentPostingsAgeSetting } from '../shared/recentPostingsSettings.js';
 import { isJobSearchConfigured, loadJobSearchSettings } from '../shared/jobSearchSettings.js';
 import { buildJobSearchUrl, buildPremiumJobSearchUrl } from '../shared/searchUrlBuilder.js';
@@ -350,7 +357,7 @@ function openOptions() {
   chrome.runtime.openOptionsPage();
 }
 
-async function openJobSearchUrl(buildUrl, failureTitle) {
+async function openJobSearchUrl(buildUrl, failureTitle, searchType) {
   const settings = await loadJobSearchSettings();
   if (!isJobSearchConfigured(settings)) {
     setStatus('error', 'Job Search Not Configured', 'Set keywords and geoId in Options, then try again.');
@@ -364,15 +371,22 @@ async function openJobSearchUrl(buildUrl, failureTitle) {
     await chrome.tabs.update(tab.id, { url });
   } catch (error) {
     setStatus('error', failureTitle, error.message || String(error));
+    return;
+  }
+
+  try {
+    await appendSearchTrackingRow(searchType);
+  } catch (error) {
+    console.warn(`Failed to record search-tracking.csv row for "${searchType}":`, error);
   }
 }
 
 function openJobSearch() {
-  return openJobSearchUrl(buildJobSearchUrl, 'Open Job Search Failed');
+  return openJobSearchUrl(buildJobSearchUrl, 'Open Job Search Failed', SEARCH_TYPE_JOB_SEARCH);
 }
 
 function openPremiumJobSearch() {
-  return openJobSearchUrl(buildPremiumJobSearchUrl, 'Open Premium Job Search Failed');
+  return openJobSearchUrl(buildPremiumJobSearchUrl, 'Open Premium Job Search Failed', SEARCH_TYPE_PREMIUM_JOB_SEARCH);
 }
 
 const NEXT_PAGE_DEFAULT_LABEL = 'Next Page';

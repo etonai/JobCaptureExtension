@@ -20,6 +20,10 @@ export const CSV_BOM = '\uFEFF';
 export const CSV_HEADER_LINE = CSV_COLUMNS.join(',');
 export const CSV_HEADER_TEXT = `${CSV_BOM}${CSV_HEADER_LINE}\r\n`;
 
+export const SEARCH_CSV_COLUMNS = ['timestamp', 'searchType'];
+export const SEARCH_CSV_HEADER_LINE = SEARCH_CSV_COLUMNS.join(',');
+export const SEARCH_CSV_HEADER_TEXT = `${CSV_BOM}${SEARCH_CSV_HEADER_LINE}\r\n`;
+
 export function escapeCsvField(value) {
   const text = value == null ? '' : String(value);
   if (/[",\r\n]/.test(text)) {
@@ -36,11 +40,11 @@ export function normalizeCsvHeader(text) {
   return String(text ?? '').replace(/^\uFEFF/, '').split(/\r\n|\n|\r/)[0]?.trimEnd() ?? '';
 }
 
-export function validateCsvHeader(text) {
+export function validateCsvHeader(text, expectedHeaderLine = CSV_HEADER_LINE) {
   const actual = normalizeCsvHeader(text);
   return {
-    ok: actual === CSV_HEADER_LINE,
-    expected: CSV_HEADER_LINE,
+    ok: actual === expectedHeaderLine,
+    expected: expectedHeaderLine,
     actual
   };
 }
@@ -68,6 +72,11 @@ export function recordToCsvValues(record) {
 export function serializeRecordCsvRow(record) {
   return serializeCsvRow(recordToCsvValues(record));
 }
+
+export function serializeSearchTrackingRow({ timestamp, searchType }) {
+  return serializeCsvRow([timestamp || '', searchType || '']);
+}
+
 export function parseCsvRows(text) {
   const rows = [];
   let row = [];

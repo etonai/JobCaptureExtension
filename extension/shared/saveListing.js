@@ -1,4 +1,12 @@
-import { CSV_HEADER_TEXT, serializeRecordCsvRow, validateCsvHeader } from './csv.js';
+import {
+  CSV_HEADER_LINE,
+  CSV_HEADER_TEXT,
+  SEARCH_CSV_HEADER_LINE,
+  SEARCH_CSV_HEADER_TEXT,
+  serializeRecordCsvRow,
+  serializeSearchTrackingRow,
+  validateCsvHeader
+} from './csv.js';
 import {
   baseListingFilename,
   descriptionMarkdownFilename,
@@ -13,6 +21,9 @@ import { ensureProjectPermission, getStoredProjectFolder } from './projectFolder
 const SAVED_LISTINGS_FOLDER = 'saved-listings';
 const CSV_FILENAME = 'job-tracking.csv';
 export const OTHER_LISTINGS_CSV_FILENAME = 'other-listings.csv';
+export const SEARCH_TRACKING_CSV_FILENAME = 'search-tracking.csv';
+export const SEARCH_TYPE_JOB_SEARCH = 'Open Job Search';
+export const SEARCH_TYPE_PREMIUM_JOB_SEARCH = 'Open Premium Job Search';
 
 export class CsvHeaderMismatchError extends Error {
   constructor(result) {
@@ -79,20 +90,57 @@ export async function reserveListingFilename(savedListingsHandle, record) {
   throw new Error('Could not find an available saved listing filename.');
 }
 
-async function ensureCsvReady(projectHandle, csvFilename = CSV_FILENAME) {
+async function ensureCsvReady(projectHandle, csvFilename = CSV_FILENAME, headerText = CSV_HEADER_TEXT, headerLine = CSV_HEADER_LINE) {
   const csvHandle = await projectHandle.getFileHandle(csvFilename, { create: true });
   const file = await csvHandle.getFile();
   if (file.size === 0) {
-    await writeTextFile(csvHandle, CSV_HEADER_TEXT);
+    await writeTextFile(csvHandle, headerText);
     return { csvHandle, created: true };
   }
 
   const text = await file.text();
-  const header = validateCsvHeader(text);
+  const header = validateCsvHeader(text, headerLine);
   if (!header.ok) {
     throw new CsvHeaderMismatchError(header);
   }
   return { csvHandle, created: false };
+}
+
+function formatLocalTimestamp(date) {
+  const yyyy = String(date.getFullYear()).padStart(4, '0');
+  const mm = String(date.getMonth() + 1).padStart(2, '0');
+  const dd = String(date.getDate()).padStart(2, '0');
+  const hh = String(date.getHours()).padStart(2, '0');
+  const mi = String(date.getMinutes()).padStart(2, '0');
+  const ss = String(date.getSeconds()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}`;
+}
+
+export async function appendSearchTrackingRow(searchType, now = new Date()) {
+  const projectHandle = await getStoredProjectFolder();
+  if (!projectHandle) {
+    throw new Error('Project folder is not configured. Open Options and choose a project folder before tracking searches.');
+  }
+
+  await ensureProjectPermission(projectHandle);
+
+  const csvState = await ensureCsvReady(
+    projectHandle,
+    SEARCH_TRACKING_CSV_FILENAME,
+    SEARCH_CSV_HEADER_TEXT,
+    SEARCH_CSV_HEADER_LINE
+  );
+  await appendTextFile(
+    csvState.csvHandle,
+    serializeSearchTrackingRow({ timestamp: formatLocalTimestamp(now), searchType })
+  );
+
+  return {
+    ok: true,
+    csvFile: SEARCH_TRACKING_CSV_FILENAME,
+    csvCreated: csvState.created,
+    csvAppended: true
+  };
 }
 
 export async function initializeProjectStructure(projectHandle) {

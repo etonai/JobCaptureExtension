@@ -9,8 +9,10 @@ import {
   parseCsvRows,
   parseOldTrackingCompanies,
   recordToCsvValues,
+  SEARCH_CSV_HEADER_TEXT,
   serializeCsvRow,
   serializeRecordCsvRow,
+  serializeSearchTrackingRow,
   validateCsvHeader
 } from '../shared/csv.js';
 import {
@@ -27,9 +29,13 @@ import { findPriorCompanyInCache } from '../shared/priorCompanyCache.js';
 import { ensureProjectReadPermission } from '../shared/projectFolderStore.js';
 import {
   appendCaptureRecordToCsv,
+  appendSearchTrackingRow,
   OTHER_LISTINGS_CSV_FILENAME,
   reserveListingFilename,
-  saveCaptureRecord
+  saveCaptureRecord,
+  SEARCH_TRACKING_CSV_FILENAME,
+  SEARCH_TYPE_JOB_SEARCH,
+  SEARCH_TYPE_PREMIUM_JOB_SEARCH
 } from '../shared/saveListing.js';
 import {
   DEFAULT_RECENT_POSTINGS_AGE,
@@ -324,6 +330,29 @@ async function runAppendCaptureRecordToCsvTest() {
   assert(csvText.startsWith(CSV_HEADER_TEXT), 'Expected other-listings.csv to start with the standard CSV header.');
   assert(csvText.includes('Starbucks, Inc.'), 'Expected other-listings.csv to include the captured record row.');
 }
+
+async function runAppendSearchTrackingRowTest() {
+  const projectHandle = fakeProjectHandle();
+  setStoredProjectHandle(projectHandle);
+
+  const row = serializeSearchTrackingRow({ timestamp: '2026-07-27 09:15:00', searchType: SEARCH_TYPE_JOB_SEARCH });
+  assert(row === '2026-07-27 09:15:00,Open Job Search\r\n', `Unexpected search-tracking row: ${row}`);
+
+  const firstResult = await appendSearchTrackingRow(SEARCH_TYPE_JOB_SEARCH, new Date(2026, 6, 27, 9, 15, 0));
+  assert(firstResult.ok === true, 'Expected first search-tracking append to succeed.');
+  assert(firstResult.csvFile === SEARCH_TRACKING_CSV_FILENAME, `Expected ${SEARCH_TRACKING_CSV_FILENAME}, got ${firstResult.csvFile}.`);
+  assert(firstResult.csvCreated === true, 'Expected first append to create search-tracking.csv.');
+
+  const secondResult = await appendSearchTrackingRow(SEARCH_TYPE_PREMIUM_JOB_SEARCH, new Date(2026, 6, 27, 9, 16, 30));
+  assert(secondResult.csvCreated === false, 'Expected second append to reuse the existing search-tracking.csv.');
+
+  const csvText = await projectHandle.rootFiles.get(SEARCH_TRACKING_CSV_FILENAME).text();
+  assert(csvText.startsWith(SEARCH_CSV_HEADER_TEXT), 'Expected search-tracking.csv to start with the search-tracking header.');
+  assert(csvText.includes('2026-07-27 09:15:00,Open Job Search'), 'Expected search-tracking.csv to record the Open Job Search press.');
+  assert(csvText.includes('2026-07-27 09:16:30,Open Premium Job Search'), 'Expected search-tracking.csv to record the Open Premium Job Search press.');
+  assert(!projectHandle.rootFiles.has('job-tracking.csv'), 'Expected search tracking not to write job-tracking.csv.');
+}
+
 async function runReservationTests() {
   const record = sampleRecord();
   const base = baseListingFilename(record);
@@ -461,6 +490,7 @@ await runReservationTests();
 await runProjectPermissionTests();
 await runSaveCaptureRecordTest();
 await runAppendCaptureRecordToCsvTest();
+await runAppendSearchTrackingRowTest();
 await runRecentPostingsSettingsTests();
 await runJobSearchSettingsTests();
 
