@@ -67,6 +67,7 @@ h2 {
 .button-row {
   display: flex;
   gap: 8px;
+  margin-bottom: 12px;
 }
 
 .button-row .secondary-button {
@@ -215,6 +216,10 @@ h2 {
 .recent-postings-list .recent-postings-position {
   color: #52677a;
   font-size: 13px;
+}
+
+#nextPageButton {
+  margin-bottom: 12px;
 }
 
 .notice {
