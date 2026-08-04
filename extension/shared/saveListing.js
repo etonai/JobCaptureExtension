@@ -3,6 +3,7 @@ import {
   CSV_HEADER_TEXT,
   LEGACY_SEARCH_CSV_HEADER_LINE,
   parseCsvRows,
+  PREVIOUS_SEARCH_CSV_HEADER_LINE,
   SEARCH_CSV_HEADER_LINE,
   SEARCH_CSV_HEADER_TEXT,
   serializeCsvRow,
@@ -10,6 +11,7 @@ import {
   serializeSearchTrackingRow,
   validateCsvHeader
 } from './csv.js';
+import { getRecentPostingsAgeConfig, loadRecentPostingsAgeSetting } from './recentPostingsSettings.js';
 import {
   baseListingFilename,
   descriptionMarkdownFilename,
@@ -29,6 +31,8 @@ export const SEARCH_TYPE_JOB_SEARCH = 'Open Job Search';
 export const SEARCH_TYPE_PREMIUM_JOB_SEARCH = 'Open Premium Job Search';
 const SEARCH_TRACKING_INITIAL_POSTS_SEEN = 25;
 const SEARCH_TRACKING_LEGACY_POSTS_SEEN = 0;
+const SEARCH_TRACKING_INITIAL_RECENT_POSTINGS = 0;
+const SEARCH_TRACKING_UNKNOWN_FRESHNESS = 'Unknown';
 
 export class CsvHeaderMismatchError extends Error {
   constructor(result) {
@@ -111,10 +115,16 @@ async function ensureCsvReady(projectHandle, csvFilename = CSV_FILENAME, headerT
   return { csvHandle, created: false };
 }
 
-async function migrateLegacySearchTrackingCsv(csvHandle, text) {
+async function migrateLegacySearchTrackingCsv(csvHandle, text, hasPostsSeen) {
   const dataRows = parseCsvRows(text).slice(1);
   const migratedText = dataRows.reduce(
-    (acc, row) => acc + serializeCsvRow([row[0] || '', row[1] || '', String(SEARCH_TRACKING_LEGACY_POSTS_SEEN)]),
+    (acc, row) => acc + serializeSearchTrackingRow({
+      timestamp: row[0] || '',
+      searchType: row[1] || '',
+      postsSeen: hasPostsSeen ? row[2] || String(SEARCH_TRACKING_LEGACY_POSTS_SEEN) : SEARCH_TRACKING_LEGACY_POSTS_SEEN,
+      recentPostings: SEARCH_TRACKING_INITIAL_RECENT_POSTINGS,
+      freshness: SEARCH_TRACKING_UNKNOWN_FRESHNESS
+    }),
     SEARCH_CSV_HEADER_TEXT
   );
   await writeTextFile(csvHandle, migratedText);
@@ -134,15 +144,20 @@ async function ensureSearchTrackingCsvReady(projectHandle) {
     return { csvHandle, created: false };
   }
 
+  const previousHeader = validateCsvHeader(text, PREVIOUS_SEARCH_CSV_HEADER_LINE);
+  if (previousHeader.ok) {
+    await migrateLegacySearchTrackingCsv(csvHandle, text, true);
+    return { csvHandle, created: false };
+  }
+
   const legacyHeader = validateCsvHeader(text, LEGACY_SEARCH_CSV_HEADER_LINE);
   if (legacyHeader.ok) {
-    await migrateLegacySearchTrackingCsv(csvHandle, text);
+    await migrateLegacySearchTrackingCsv(csvHandle, text, false);
     return { csvHandle, created: false };
   }
 
   throw new CsvHeaderMismatchError(header);
 }
-
 function formatLocalTimestamp(date) {
   const yyyy = String(date.getFullYear()).padStart(4, '0');
   const mm = String(date.getMonth() + 1).padStart(2, '0');
@@ -162,12 +177,15 @@ export async function appendSearchTrackingRow(searchType, now = new Date()) {
   await ensureProjectPermission(projectHandle);
 
   const csvState = await ensureSearchTrackingCsvReady(projectHandle);
+  const freshness = getRecentPostingsAgeConfig(await loadRecentPostingsAgeSetting()).label;
   await appendTextFile(
     csvState.csvHandle,
     serializeSearchTrackingRow({
       timestamp: formatLocalTimestamp(now),
       searchType,
-      postsSeen: SEARCH_TRACKING_INITIAL_POSTS_SEEN
+      postsSeen: SEARCH_TRACKING_INITIAL_POSTS_SEEN,
+      recentPostings: SEARCH_TRACKING_INITIAL_RECENT_POSTINGS,
+      freshness
     })
   );
 
@@ -179,7 +197,7 @@ export async function appendSearchTrackingRow(searchType, now = new Date()) {
   };
 }
 
-export async function updateLastSearchTrackingRowPostsSeen(postsSeen) {
+export async function updateLastSearchTrackingRow({ postsSeen, recentPostings } = {}) {
   const projectHandle = await getStoredProjectFolder();
   if (!projectHandle) {
     throw new Error('Project folder is not configured. Open Options and choose a project folder before tracking searches.');
@@ -196,9 +214,23 @@ export async function updateLastSearchTrackingRowPostsSeen(postsSeen) {
     return { ok: true, csvFile: SEARCH_TRACKING_CSV_FILENAME, updated: false };
   }
 
-  dataRows[dataRows.length - 1][2] = String(postsSeen);
+  const lastRow = dataRows[dataRows.length - 1];
+  if (postsSeen != null) {
+    lastRow[2] = String(postsSeen);
+  }
+  if (recentPostings != null) {
+    lastRow[3] = String(recentPostings);
+  }
+  lastRow[4] = getRecentPostingsAgeConfig(await loadRecentPostingsAgeSetting()).label;
+
   const updatedText = dataRows.reduce(
-    (acc, row) => acc + serializeCsvRow([row[0] || '', row[1] || '', row[2] || '']),
+    (acc, row) => acc + serializeSearchTrackingRow({
+      timestamp: row[0] || '',
+      searchType: row[1] || '',
+      postsSeen: row[2] || '',
+      recentPostings: row[3] || '',
+      freshness: row[4] || ''
+    }),
     SEARCH_CSV_HEADER_TEXT
   );
   await writeTextFile(csvState.csvHandle, updatedText);
@@ -206,6 +238,9 @@ export async function updateLastSearchTrackingRowPostsSeen(postsSeen) {
   return { ok: true, csvFile: SEARCH_TRACKING_CSV_FILENAME, updated: true };
 }
 
+export function updateLastSearchTrackingRowPostsSeen(postsSeen) {
+  return updateLastSearchTrackingRow({ postsSeen });
+}
 export async function initializeProjectStructure(projectHandle) {
   await ensureProjectPermission(projectHandle);
   const savedListingsHandle = await projectHandle.getDirectoryHandle(SAVED_LISTINGS_FOLDER, { create: true });

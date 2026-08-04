@@ -23,9 +23,9 @@ Implemented in the current shell:
 - prior company warning after capture when the company already appears in `old-tracking.txt` or `job-tracking.csv`; when a company appears in both, `job-tracking.csv` (entry count and most recent capture date) is shown, since it is more actionable than the dateless `old-tracking.txt` entry
 - popup recent-postings summary for visible LinkedIn listings posted within a user-configurable age (`2 hours or less` by default, or `1 hour or less` / `less than 1 hour` from Options); rows sourced from a results-list card are prefixed with the card's position in the left-hand list (e.g. `5 Armada`)
 - popup "Open Job Search" action that navigates the active tab to the first page of a user-configured LinkedIn search (keywords + geoId), built from stable URL parameters only
-- every "Open Job Search" / "Open Premium Job Search" press appends a `search-tracking.csv` row (local timestamp, which button was pressed, and a `postsSeen` count starting at 25), created with a header on first use; a `search-tracking.csv` written before this column existed is migrated in place (new header, existing rows backfilled with `postsSeen = 0`) the next time it's touched; the write is best-effort and never blocks or fails the navigation itself
+- every "Open Job Search" / "Open Premium Job Search" press appends a search-tracking.csv row with postsSeen = 25, recentPostings = 0, and the configured freshness label; older two- and three-column files migrate in place with historical recent-posting values backfilled to 0 and freshness to Unknown
 - popup "Next Page" action that advances the active LinkedIn results tab by 25 results in place, working identically on generic and premium search surfaces, with the button label showing the destination results number (e.g. `Next Page (results 25+)`); it also updates the most recent `search-tracking.csv` row's `postsSeen` to that same destination results number, best-effort and non-blocking
-- Recent Postings header refresh button that re-runs the postings scan on demand, so the list can be updated after "Next Page" without closing and reopening the popup
+- Recent Postings scans update a durable per-search running total in search-tracking.csv; rescanning replaces the current page count, while "Next Page" commits that count before starting the next page at zero
 - persistent `host_permissions` grant for `https://www.linkedin.com/*`, so script injection works immediately after the extension's own "Open Job Search" / "Open Premium Job Search" / "Next Page" navigations without requiring the popup to be closed and reopened
 
 It does not implement the final editable review UI. The Save action writes the current captured parser result; DevCycle006 will add richer field editing before save.
@@ -145,7 +145,9 @@ If the active tab is not a LinkedIn search-results page, the button shows a stat
 
 ## Recent Postings Refresh
 
-The Recent Postings header has a small "↻" refresh button next to the count badge. Clicking it re-runs the same scan that runs automatically when the popup opens (`scanRecentPostings`), updating the list, count, and on-page highlights against whatever the active tab currently shows; it also refreshes the "Next Page" button's results-number label from that same tab read, so the label stays in sync even if the user paged LinkedIn's own controls directly. This exists specifically to recover from the staleness "Next Page" introduces: after advancing to a new results page, the Recent Postings panel still reflects the old page until either the popup is closed and reopened or refresh is clicked. The button disables itself while a scan is in flight so repeated clicks cannot start overlapping scans.
+The Recent Postings header has a small refresh button next to the count badge. Clicking it re-runs the same scan that runs automatically when the popup opens, updating the list, count, on-page highlights, and the most recent search-tracking.csv row.
+
+The CSV's recentPostings value is a running total across result pages. Rescanning the same page replaces that page's count instead of adding it again. "Next Page" commits the current page count into the prior-pages subtotal, resets the current page to zero, and then navigation continues. The accounting state is retained in chrome.storage.session, including the LinkedIn start value, so closing and reopening the popup does not double-count the current page. Each row update also refreshes freshness from the current Options setting.
 
 ## Permissions
 
@@ -165,12 +167,14 @@ node --check extension/shared/filename.js
 node --check extension/shared/projectFolderStore.js
 node --check extension/shared/priorCompanyCache.js
 node --check extension/shared/recentPostingsSettings.js
+node --check extension/shared/recentPostingsTracking.js
 node --check extension/shared/jobSearchSettings.js
 node --check extension/shared/searchUrlBuilder.js
 node --check extension/shared/pagingUrl.js
 node --check extension/shared/saveListing.js
 node extension/tests/captureActivePage.smoke.test.mjs
 node extension/tests/persistence.test.mjs
+node extension/tests/popup.module.smoke.test.mjs
 node extension/tests/searchUrlBuilder.test.mjs
 node extension/tests/pagingUrl.test.mjs
 ```

@@ -1,4 +1,4 @@
-import { getNextStart, isLinkedInJobSearchUrl, nextPageUrl } from '../shared/pagingUrl.js';
+import { getCurrentStart, getNextStart, isLinkedInJobSearchUrl, nextPageUrl } from '../shared/pagingUrl.js';
 
 function assert(condition, message) {
   if (!condition) {
@@ -50,6 +50,19 @@ function runNextPageUrlTests() {
   assert(blankNext.searchParams.get('start') === '25', 'Expected blank start to reset to 25.');
 }
 
+function runGetCurrentStartTests() {
+  const noStart = 'https://www.linkedin.com/jobs/search-results/?keywords=Software+Engineer';
+  assert(getCurrentStart(noStart) === 0, 'Expected a missing start param to resolve to 0.');
+
+  const start25 = 'https://www.linkedin.com/jobs/search-results/?keywords=Software+Engineer&start=25';
+  assert(getCurrentStart(start25) === 25, 'Expected start=25 to resolve to 25.');
+
+  const invalidStart = 'https://www.linkedin.com/jobs/search-results/?keywords=Software+Engineer&start=invalid';
+  assert(getCurrentStart(invalidStart) === 0, 'Expected a non-numeric start to resolve to 0.');
+
+  const negativeStart = 'https://www.linkedin.com/jobs/search-results/?keywords=Software+Engineer&start=-25';
+  assert(getCurrentStart(negativeStart) === 0, 'Expected a negative start to resolve to 0.');
+}
 function runGetNextStartTests() {
   const noStart = 'https://www.linkedin.com/jobs/search-results/?keywords=Software+Engineer&geoId=90000091';
   assert(getNextStart(noStart) === 25, 'Expected a URL with no start param to yield a next start of 25.');
@@ -79,6 +92,7 @@ function runIsLinkedInJobSearchUrlTests() {
 }
 
 runNextPageUrlTests();
+runGetCurrentStartTests();
 runGetNextStartTests();
 runIsLinkedInJobSearchUrlTests();
 

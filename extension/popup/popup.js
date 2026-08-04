@@ -8,12 +8,19 @@ import {
   saveCaptureRecord,
   SEARCH_TYPE_JOB_SEARCH,
   SEARCH_TYPE_PREMIUM_JOB_SEARCH,
-  updateLastSearchTrackingRowPostsSeen
+  updateLastSearchTrackingRow
 } from '../shared/saveListing.js';
 import { getRecentPostingsAgeConfig, loadRecentPostingsAgeSetting } from '../shared/recentPostingsSettings.js';
 import { isJobSearchConfigured, loadJobSearchSettings } from '../shared/jobSearchSettings.js';
 import { buildJobSearchUrl, buildPremiumJobSearchUrl } from '../shared/searchUrlBuilder.js';
-import { getNextStart, isLinkedInJobSearchUrl, nextPageUrl } from '../shared/pagingUrl.js';
+import { getCurrentStart, getNextStart, isLinkedInJobSearchUrl, nextPageUrl } from '../shared/pagingUrl.js';
+import {
+  advanceRecentPostingsPage,
+  normalizeRecentPostingsTrackingState,
+  RECENT_POSTINGS_TRACKING_SESSION_KEY,
+  recentPostingsRunningTotal,
+  recordRecentPostingsScan
+} from '../shared/recentPostingsTracking.js';
 
 const AUTO_CAPTURE_INTENT_KEY = 'popupIntent';
 const AUTO_CAPTURE_INTENT_TTL_MS = 10_000;
@@ -96,6 +103,30 @@ function setRecentPostingsState(kind, message, listings = []) {
 
 let recentPostingsScanInFlight = false;
 
+async function loadRecentPostingsTrackingState(pageStart = 0) {
+  const stored = await chrome.storage.session.get(RECENT_POSTINGS_TRACKING_SESSION_KEY);
+  return normalizeRecentPostingsTrackingState(stored[RECENT_POSTINGS_TRACKING_SESSION_KEY], pageStart);
+}
+
+async function saveRecentPostingsTrackingState(state) {
+  await chrome.storage.session.set({ [RECENT_POSTINGS_TRACKING_SESSION_KEY]: state });
+}
+
+async function resetRecentPostingsTrackingState(pageStart = 0) {
+  await saveRecentPostingsTrackingState(normalizeRecentPostingsTrackingState(null, pageStart));
+}
+
+async function trackRecentPostingsScan(tabUrl, currentPageTotal) {
+  const pageStart = getCurrentStart(tabUrl);
+  const state = recordRecentPostingsScan(
+    await loadRecentPostingsTrackingState(pageStart),
+    pageStart,
+    currentPageTotal
+  );
+  await saveRecentPostingsTrackingState(state);
+  await updateLastSearchTrackingRow({ recentPostings: recentPostingsRunningTotal(state) });
+}
+
 async function scanRecentPostings() {
   if (recentPostingsScanInFlight) {
     return;
@@ -127,6 +158,11 @@ async function scanRecentPostings() {
       console.debug('[recent-postings-debug]', result.debug);
     }
     const listings = Array.isArray(result.listings) ? result.listings : [];
+    try {
+      await trackRecentPostingsScan(tab.url, listings.length);
+    } catch (error) {
+      console.warn('Failed to update search-tracking.csv Recent Postings:', error);
+    }
     if (listings.length === 0) {
       const debugSuffix = result.debug
         ? ` (debug: ${result.debug.titleParagraphCount} cards, ${result.debug.ageLineCount} age-text lines on page)`
@@ -377,6 +413,7 @@ async function openJobSearchUrl(buildUrl, failureTitle, searchType) {
 
   try {
     await appendSearchTrackingRow(searchType);
+    await resetRecentPostingsTrackingState(0);
   } catch (error) {
     console.warn(`Failed to record search-tracking.csv row for "${searchType}":`, error);
   }
@@ -410,20 +447,33 @@ async function goToNextPage() {
 
     const nextStart = getNextStart(tab.url);
     const url = nextPageUrl(tab.url);
+    let recentPostingsState = null;
+    try {
+      recentPostingsState = advanceRecentPostingsPage(
+        await loadRecentPostingsTrackingState(getCurrentStart(tab.url)),
+        nextStart
+      );
+      await saveRecentPostingsTrackingState(recentPostingsState);
+    } catch (error) {
+      console.warn('Failed to advance Recent Postings session state:', error);
+    }
+
     await chrome.tabs.update(tab.id, { url });
     updateNextPageButtonLabel({ url });
     setStatus('capturing', 'Advancing Page', 'Loading the next page of results. Once it loads, click the Recent Postings refresh button to rescan.');
 
     try {
-      await updateLastSearchTrackingRowPostsSeen(nextStart);
+      await updateLastSearchTrackingRow({
+        postsSeen: nextStart,
+        recentPostings: recentPostingsState ? recentPostingsRunningTotal(recentPostingsState) : undefined
+      });
     } catch (error) {
-      console.warn('Failed to update search-tracking.csv Posts Seen:', error);
+      console.warn('Failed to update search-tracking.csv paging totals:', error);
     }
   } catch (error) {
     setStatus('error', 'Next Page Failed', error.message || String(error));
   }
 }
-
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }

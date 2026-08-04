@@ -9,6 +9,7 @@ import {
   normalizeCompanyForMatch,
   parseCsvRows,
   parseOldTrackingCompanies,
+  PREVIOUS_SEARCH_CSV_HEADER_LINE,
   recordToCsvValues,
   SEARCH_CSV_HEADER_LINE,
   SEARCH_CSV_HEADER_TEXT,
@@ -38,7 +39,7 @@ import {
   SEARCH_TRACKING_CSV_FILENAME,
   SEARCH_TYPE_JOB_SEARCH,
   SEARCH_TYPE_PREMIUM_JOB_SEARCH,
-  updateLastSearchTrackingRowPostsSeen
+  updateLastSearchTrackingRow
 } from '../shared/saveListing.js';
 import {
   DEFAULT_RECENT_POSTINGS_AGE,
@@ -49,6 +50,11 @@ import {
   recentPostingsAgeOptions,
   saveRecentPostingsAgeSetting
 } from '../shared/recentPostingsSettings.js';
+import {
+  advanceRecentPostingsPage,
+  recentPostingsRunningTotal,
+  recordRecentPostingsScan
+} from '../shared/recentPostingsTracking.js';
 import {
   DEFAULT_JOB_SEARCH_SETTINGS,
   isJobSearchConfigured,
@@ -341,8 +347,8 @@ async function runAppendSearchTrackingRowTest() {
   const projectHandle = fakeProjectHandle();
   setStoredProjectHandle(projectHandle);
 
-  const row = serializeSearchTrackingRow({ timestamp: '2026-07-27 09:15:00', searchType: SEARCH_TYPE_JOB_SEARCH, postsSeen: 25 });
-  assert(row === '2026-07-27 09:15:00,Open Job Search,25\r\n', `Unexpected search-tracking row: ${row}`);
+  const row = serializeSearchTrackingRow({ timestamp: '2026-07-27 09:15:00', searchType: SEARCH_TYPE_JOB_SEARCH, postsSeen: 25, recentPostings: 0, freshness: '2 hours or less' });
+  assert(row === '2026-07-27 09:15:00,Open Job Search,25,0,2 hours or less\r\n', `Unexpected search-tracking row: ${row}`);
 
   const firstResult = await appendSearchTrackingRow(SEARCH_TYPE_JOB_SEARCH, new Date(2026, 6, 27, 9, 15, 0));
   assert(firstResult.ok === true, 'Expected first search-tracking append to succeed.');
@@ -366,14 +372,17 @@ async function runUpdateLastSearchTrackingRowPostsSeenTest() {
   await appendSearchTrackingRow(SEARCH_TYPE_JOB_SEARCH, new Date(2026, 6, 27, 9, 15, 0));
   await appendSearchTrackingRow(SEARCH_TYPE_PREMIUM_JOB_SEARCH, new Date(2026, 6, 27, 9, 20, 0));
 
-  const updateResult = await updateLastSearchTrackingRowPostsSeen(50);
+  globalThis.chrome = { storage: { local: fakeChromeStorageLocal() } };
+  await saveRecentPostingsAgeSetting(RECENT_POSTINGS_AGE_VALUES.ONE_HOUR_OR_LESS);
+  const updateResult = await updateLastSearchTrackingRow({ postsSeen: 50, recentPostings: 7 });
   assert(updateResult.ok === true && updateResult.updated === true, `Expected Posts Seen update to succeed, got ${JSON.stringify(updateResult)}.`);
 
   const csvText = await projectHandle.rootFiles.get(SEARCH_TRACKING_CSV_FILENAME).text();
   const rows = csvText.trim().split('\r\n');
   assert(rows.length === 3, `Expected header plus two data rows, got ${rows.length}.`);
-  assert(rows[1].endsWith(',25'), `Expected first row's postsSeen to remain 25, got: ${rows[1]}`);
-  assert(rows[2].endsWith(',50'), `Expected last row's postsSeen to be updated to 50, got: ${rows[2]}`);
+  assert(rows[1].includes(',25,0,2 hours or less'), `Expected first row's postsSeen to remain 25, got: ${rows[1]}`);
+  assert(rows[2].includes(',50,7,1 hour or less'), `Expected last row's postsSeen to be updated to 50, got: ${rows[2]}`);
+  delete globalThis.chrome;
 }
 
 async function runSearchTrackingLegacyMigrationTest() {
@@ -387,12 +396,44 @@ async function runSearchTrackingLegacyMigrationTest() {
   assert(result.csvCreated === false, 'Expected legacy migration to reuse the existing file rather than report creation.');
 
   const csvText = await projectHandle.rootFiles.get(SEARCH_TRACKING_CSV_FILENAME).text();
-  assert(validateCsvHeader(csvText, SEARCH_CSV_HEADER_LINE).ok, 'Expected migrated file to start with the new 3-column header.');
-  assert(csvText.includes('2026-07-27 09:15:00,Open Job Search,0'), 'Expected legacy row to be backfilled with postsSeen 0.');
-  assert(csvText.includes('2026-07-27 09:16:30,Open Premium Job Search,0'), 'Expected legacy row to be backfilled with postsSeen 0.');
-  assert(csvText.includes('2026-07-27 09:30:00,Open Job Search,25'), 'Expected newly appended row to have postsSeen 25.');
+  assert(validateCsvHeader(csvText, SEARCH_CSV_HEADER_LINE).ok, 'Expected migrated file to start with the new 5-column header.');
+  assert(csvText.includes('2026-07-27 09:15:00,Open Job Search,0,0,Unknown'), 'Expected legacy row to be backfilled with default tracking values.');
+  assert(csvText.includes('2026-07-27 09:16:30,Open Premium Job Search,0,0,Unknown'), 'Expected legacy row to be backfilled with default tracking values.');
+  assert(csvText.includes('2026-07-27 09:30:00,Open Job Search,25,0,2 hours or less'), 'Expected newly appended row to have default recent-postings values.');
 }
 
+async function runSearchTrackingPreviousSchemaMigrationTest() {
+  const projectHandle = fakeProjectHandle();
+  setStoredProjectHandle(projectHandle);
+
+  const previousText = CSV_BOM + PREVIOUS_SEARCH_CSV_HEADER_LINE + '\r\n2026-07-27 09:15:00,Open Job Search,75\r\n';
+  projectHandle.rootFiles.set(SEARCH_TRACKING_CSV_FILENAME, fakeWritableFile(previousText));
+
+  await updateLastSearchTrackingRow({ recentPostings: 4 });
+  const csvText = await projectHandle.rootFiles.get(SEARCH_TRACKING_CSV_FILENAME).text();
+  assert(validateCsvHeader(csvText, SEARCH_CSV_HEADER_LINE).ok, 'Expected the 3-column schema to migrate to 5 columns.');
+  assert(csvText.includes('2026-07-27 09:15:00,Open Job Search,75,4,2 hours or less'), 'Expected migration to preserve postsSeen and apply the update.');
+}
+
+function runRecentPostingsTrackingTests() {
+  let state = recordRecentPostingsScan(null, 0, 2);
+  assert(recentPostingsRunningTotal(state) === 2, 'Expected first-page scan total of 2.');
+
+  state = recordRecentPostingsScan(state, 0, 3);
+  assert(recentPostingsRunningTotal(state) === 3, 'Expected same-page refresh to replace, not add, its count.');
+
+  state = advanceRecentPostingsPage(state, 25);
+  assert(state.previousPagesTotal === 3 && state.currentPageTotal === 0, 'Expected Next Page to commit and reset the current page.');
+
+  state = recordRecentPostingsScan(state, 25, 4);
+  assert(recentPostingsRunningTotal(state) === 7, 'Expected second-page scan to add to committed pages.');
+
+  state = recordRecentPostingsScan(state, 25, 0);
+  assert(recentPostingsRunningTotal(state) === 3, 'Expected a zero-result rescan to replace the current-page count.');
+
+  state = recordRecentPostingsScan(state, 50, 5);
+  assert(recentPostingsRunningTotal(state) === 8, 'Expected direct page navigation to commit the prior page before scanning.');
+}
 async function runReservationTests() {
   const record = sampleRecord();
   const base = baseListingFilename(record);
@@ -533,6 +574,8 @@ await runAppendCaptureRecordToCsvTest();
 await runAppendSearchTrackingRowTest();
 await runUpdateLastSearchTrackingRowPostsSeenTest();
 await runSearchTrackingLegacyMigrationTest();
+await runSearchTrackingPreviousSchemaMigrationTest();
+runRecentPostingsTrackingTests();
 await runRecentPostingsSettingsTests();
 await runJobSearchSettingsTests();
 
