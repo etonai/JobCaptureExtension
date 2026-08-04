@@ -5,10 +5,12 @@ import {
   escapeCsvField,
   findOldTrackingCompany,
   findPriorCompanyCaptures,
+  LEGACY_SEARCH_CSV_HEADER_LINE,
   normalizeCompanyForMatch,
   parseCsvRows,
   parseOldTrackingCompanies,
   recordToCsvValues,
+  SEARCH_CSV_HEADER_LINE,
   SEARCH_CSV_HEADER_TEXT,
   serializeCsvRow,
   serializeRecordCsvRow,
@@ -35,7 +37,8 @@ import {
   saveCaptureRecord,
   SEARCH_TRACKING_CSV_FILENAME,
   SEARCH_TYPE_JOB_SEARCH,
-  SEARCH_TYPE_PREMIUM_JOB_SEARCH
+  SEARCH_TYPE_PREMIUM_JOB_SEARCH,
+  updateLastSearchTrackingRowPostsSeen
 } from '../shared/saveListing.js';
 import {
   DEFAULT_RECENT_POSTINGS_AGE,
@@ -194,8 +197,11 @@ function fakeWritableFile(initialText = '') {
           }
         };
       },
-      async createWritable() {
+      async createWritable({ keepExistingData = false } = {}) {
         position = 0;
+        if (!keepExistingData) {
+          text = '';
+        }
         return {
           async write(value) {
             const valueText = String(value);
@@ -335,8 +341,8 @@ async function runAppendSearchTrackingRowTest() {
   const projectHandle = fakeProjectHandle();
   setStoredProjectHandle(projectHandle);
 
-  const row = serializeSearchTrackingRow({ timestamp: '2026-07-27 09:15:00', searchType: SEARCH_TYPE_JOB_SEARCH });
-  assert(row === '2026-07-27 09:15:00,Open Job Search\r\n', `Unexpected search-tracking row: ${row}`);
+  const row = serializeSearchTrackingRow({ timestamp: '2026-07-27 09:15:00', searchType: SEARCH_TYPE_JOB_SEARCH, postsSeen: 25 });
+  assert(row === '2026-07-27 09:15:00,Open Job Search,25\r\n', `Unexpected search-tracking row: ${row}`);
 
   const firstResult = await appendSearchTrackingRow(SEARCH_TYPE_JOB_SEARCH, new Date(2026, 6, 27, 9, 15, 0));
   assert(firstResult.ok === true, 'Expected first search-tracking append to succeed.');
@@ -348,9 +354,43 @@ async function runAppendSearchTrackingRowTest() {
 
   const csvText = await projectHandle.rootFiles.get(SEARCH_TRACKING_CSV_FILENAME).text();
   assert(csvText.startsWith(SEARCH_CSV_HEADER_TEXT), 'Expected search-tracking.csv to start with the search-tracking header.');
-  assert(csvText.includes('2026-07-27 09:15:00,Open Job Search'), 'Expected search-tracking.csv to record the Open Job Search press.');
-  assert(csvText.includes('2026-07-27 09:16:30,Open Premium Job Search'), 'Expected search-tracking.csv to record the Open Premium Job Search press.');
+  assert(csvText.includes('2026-07-27 09:15:00,Open Job Search,25'), 'Expected search-tracking.csv to record the Open Job Search press with postsSeen 25.');
+  assert(csvText.includes('2026-07-27 09:16:30,Open Premium Job Search,25'), 'Expected search-tracking.csv to record the Open Premium Job Search press with postsSeen 25.');
   assert(!projectHandle.rootFiles.has('job-tracking.csv'), 'Expected search tracking not to write job-tracking.csv.');
+}
+
+async function runUpdateLastSearchTrackingRowPostsSeenTest() {
+  const projectHandle = fakeProjectHandle();
+  setStoredProjectHandle(projectHandle);
+
+  await appendSearchTrackingRow(SEARCH_TYPE_JOB_SEARCH, new Date(2026, 6, 27, 9, 15, 0));
+  await appendSearchTrackingRow(SEARCH_TYPE_PREMIUM_JOB_SEARCH, new Date(2026, 6, 27, 9, 20, 0));
+
+  const updateResult = await updateLastSearchTrackingRowPostsSeen(50);
+  assert(updateResult.ok === true && updateResult.updated === true, `Expected Posts Seen update to succeed, got ${JSON.stringify(updateResult)}.`);
+
+  const csvText = await projectHandle.rootFiles.get(SEARCH_TRACKING_CSV_FILENAME).text();
+  const rows = csvText.trim().split('\r\n');
+  assert(rows.length === 3, `Expected header plus two data rows, got ${rows.length}.`);
+  assert(rows[1].endsWith(',25'), `Expected first row's postsSeen to remain 25, got: ${rows[1]}`);
+  assert(rows[2].endsWith(',50'), `Expected last row's postsSeen to be updated to 50, got: ${rows[2]}`);
+}
+
+async function runSearchTrackingLegacyMigrationTest() {
+  const projectHandle = fakeProjectHandle();
+  setStoredProjectHandle(projectHandle);
+
+  const legacyText = `${CSV_BOM}${LEGACY_SEARCH_CSV_HEADER_LINE}\r\n2026-07-27 09:15:00,Open Job Search\r\n2026-07-27 09:16:30,Open Premium Job Search\r\n`;
+  projectHandle.rootFiles.set(SEARCH_TRACKING_CSV_FILENAME, fakeWritableFile(legacyText));
+
+  const result = await appendSearchTrackingRow(SEARCH_TYPE_JOB_SEARCH, new Date(2026, 6, 27, 9, 30, 0));
+  assert(result.csvCreated === false, 'Expected legacy migration to reuse the existing file rather than report creation.');
+
+  const csvText = await projectHandle.rootFiles.get(SEARCH_TRACKING_CSV_FILENAME).text();
+  assert(validateCsvHeader(csvText, SEARCH_CSV_HEADER_LINE).ok, 'Expected migrated file to start with the new 3-column header.');
+  assert(csvText.includes('2026-07-27 09:15:00,Open Job Search,0'), 'Expected legacy row to be backfilled with postsSeen 0.');
+  assert(csvText.includes('2026-07-27 09:16:30,Open Premium Job Search,0'), 'Expected legacy row to be backfilled with postsSeen 0.');
+  assert(csvText.includes('2026-07-27 09:30:00,Open Job Search,25'), 'Expected newly appended row to have postsSeen 25.');
 }
 
 async function runReservationTests() {
@@ -491,6 +531,8 @@ await runProjectPermissionTests();
 await runSaveCaptureRecordTest();
 await runAppendCaptureRecordToCsvTest();
 await runAppendSearchTrackingRowTest();
+await runUpdateLastSearchTrackingRowPostsSeenTest();
+await runSearchTrackingLegacyMigrationTest();
 await runRecentPostingsSettingsTests();
 await runJobSearchSettingsTests();
 

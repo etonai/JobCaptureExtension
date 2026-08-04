@@ -1,8 +1,11 @@
 import {
   CSV_HEADER_LINE,
   CSV_HEADER_TEXT,
+  LEGACY_SEARCH_CSV_HEADER_LINE,
+  parseCsvRows,
   SEARCH_CSV_HEADER_LINE,
   SEARCH_CSV_HEADER_TEXT,
+  serializeCsvRow,
   serializeRecordCsvRow,
   serializeSearchTrackingRow,
   validateCsvHeader
@@ -24,6 +27,8 @@ export const OTHER_LISTINGS_CSV_FILENAME = 'other-listings.csv';
 export const SEARCH_TRACKING_CSV_FILENAME = 'search-tracking.csv';
 export const SEARCH_TYPE_JOB_SEARCH = 'Open Job Search';
 export const SEARCH_TYPE_PREMIUM_JOB_SEARCH = 'Open Premium Job Search';
+const SEARCH_TRACKING_INITIAL_POSTS_SEEN = 25;
+const SEARCH_TRACKING_LEGACY_POSTS_SEEN = 0;
 
 export class CsvHeaderMismatchError extends Error {
   constructor(result) {
@@ -106,6 +111,38 @@ async function ensureCsvReady(projectHandle, csvFilename = CSV_FILENAME, headerT
   return { csvHandle, created: false };
 }
 
+async function migrateLegacySearchTrackingCsv(csvHandle, text) {
+  const dataRows = parseCsvRows(text).slice(1);
+  const migratedText = dataRows.reduce(
+    (acc, row) => acc + serializeCsvRow([row[0] || '', row[1] || '', String(SEARCH_TRACKING_LEGACY_POSTS_SEEN)]),
+    SEARCH_CSV_HEADER_TEXT
+  );
+  await writeTextFile(csvHandle, migratedText);
+}
+
+async function ensureSearchTrackingCsvReady(projectHandle) {
+  const csvHandle = await projectHandle.getFileHandle(SEARCH_TRACKING_CSV_FILENAME, { create: true });
+  const file = await csvHandle.getFile();
+  if (file.size === 0) {
+    await writeTextFile(csvHandle, SEARCH_CSV_HEADER_TEXT);
+    return { csvHandle, created: true };
+  }
+
+  const text = await file.text();
+  const header = validateCsvHeader(text, SEARCH_CSV_HEADER_LINE);
+  if (header.ok) {
+    return { csvHandle, created: false };
+  }
+
+  const legacyHeader = validateCsvHeader(text, LEGACY_SEARCH_CSV_HEADER_LINE);
+  if (legacyHeader.ok) {
+    await migrateLegacySearchTrackingCsv(csvHandle, text);
+    return { csvHandle, created: false };
+  }
+
+  throw new CsvHeaderMismatchError(header);
+}
+
 function formatLocalTimestamp(date) {
   const yyyy = String(date.getFullYear()).padStart(4, '0');
   const mm = String(date.getMonth() + 1).padStart(2, '0');
@@ -124,15 +161,14 @@ export async function appendSearchTrackingRow(searchType, now = new Date()) {
 
   await ensureProjectPermission(projectHandle);
 
-  const csvState = await ensureCsvReady(
-    projectHandle,
-    SEARCH_TRACKING_CSV_FILENAME,
-    SEARCH_CSV_HEADER_TEXT,
-    SEARCH_CSV_HEADER_LINE
-  );
+  const csvState = await ensureSearchTrackingCsvReady(projectHandle);
   await appendTextFile(
     csvState.csvHandle,
-    serializeSearchTrackingRow({ timestamp: formatLocalTimestamp(now), searchType })
+    serializeSearchTrackingRow({
+      timestamp: formatLocalTimestamp(now),
+      searchType,
+      postsSeen: SEARCH_TRACKING_INITIAL_POSTS_SEEN
+    })
   );
 
   return {
@@ -141,6 +177,33 @@ export async function appendSearchTrackingRow(searchType, now = new Date()) {
     csvCreated: csvState.created,
     csvAppended: true
   };
+}
+
+export async function updateLastSearchTrackingRowPostsSeen(postsSeen) {
+  const projectHandle = await getStoredProjectFolder();
+  if (!projectHandle) {
+    throw new Error('Project folder is not configured. Open Options and choose a project folder before tracking searches.');
+  }
+
+  await ensureProjectPermission(projectHandle);
+
+  const csvState = await ensureSearchTrackingCsvReady(projectHandle);
+  const file = await csvState.csvHandle.getFile();
+  const text = await file.text();
+  const dataRows = parseCsvRows(text).slice(1);
+
+  if (dataRows.length === 0) {
+    return { ok: true, csvFile: SEARCH_TRACKING_CSV_FILENAME, updated: false };
+  }
+
+  dataRows[dataRows.length - 1][2] = String(postsSeen);
+  const updatedText = dataRows.reduce(
+    (acc, row) => acc + serializeCsvRow([row[0] || '', row[1] || '', row[2] || '']),
+    SEARCH_CSV_HEADER_TEXT
+  );
+  await writeTextFile(csvState.csvHandle, updatedText);
+
+  return { ok: true, csvFile: SEARCH_TRACKING_CSV_FILENAME, updated: true };
 }
 
 export async function initializeProjectStructure(projectHandle) {

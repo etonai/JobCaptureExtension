@@ -7,7 +7,8 @@ import {
   OTHER_LISTINGS_CSV_FILENAME,
   saveCaptureRecord,
   SEARCH_TYPE_JOB_SEARCH,
-  SEARCH_TYPE_PREMIUM_JOB_SEARCH
+  SEARCH_TYPE_PREMIUM_JOB_SEARCH,
+  updateLastSearchTrackingRowPostsSeen
 } from '../shared/saveListing.js';
 import { getRecentPostingsAgeConfig, loadRecentPostingsAgeSetting } from '../shared/recentPostingsSettings.js';
 import { isJobSearchConfigured, loadJobSearchSettings } from '../shared/jobSearchSettings.js';
@@ -407,10 +408,17 @@ async function goToNextPage() {
       return;
     }
 
+    const nextStart = getNextStart(tab.url);
     const url = nextPageUrl(tab.url);
     await chrome.tabs.update(tab.id, { url });
     updateNextPageButtonLabel({ url });
     setStatus('capturing', 'Advancing Page', 'Loading the next page of results. Once it loads, click the Recent Postings refresh button to rescan.');
+
+    try {
+      await updateLastSearchTrackingRowPostsSeen(nextStart);
+    } catch (error) {
+      console.warn('Failed to update search-tracking.csv Posts Seen:', error);
+    }
   } catch (error) {
     setStatus('error', 'Next Page Failed', error.message || String(error));
   }
