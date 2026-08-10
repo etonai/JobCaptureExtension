@@ -21,7 +21,7 @@ import {
   savedDescriptionTextPath,
   savedListingPath
 } from './filename.js';
-import { ensureProjectPermission, getStoredProjectFolder } from './projectFolderStore.js';
+import { ensureProjectPermission, getStoredProjectFolder, queryProjectPermission } from './projectFolderStore.js';
 
 const SAVED_LISTINGS_FOLDER = 'saved-listings';
 const CSV_FILENAME = 'job-tracking.csv';
@@ -203,7 +203,21 @@ export async function updateLastSearchTrackingRow({ postsSeen, recentPostings } 
     throw new Error('Project folder is not configured. Open Options and choose a project folder before tracking searches.');
   }
 
-  await ensureProjectPermission(projectHandle);
+  // This path runs from automatic, non-click-driven scans (e.g. the popup-open
+  // scan), so it must never call requestPermission(): that API requires
+  // transient user activation and throws a DOMException without one. Skip the
+  // write instead of prompting; a later user-gesture action (refresh, Next
+  // Page, a search button) will persist the up-to-date total.
+  const permission = await queryProjectPermission(projectHandle);
+  if (permission !== 'granted') {
+    return {
+      ok: false,
+      csvFile: SEARCH_TRACKING_CSV_FILENAME,
+      updated: false,
+      skipped: true,
+      reason: `Project folder permission is ${permission}.`
+    };
+  }
 
   const csvState = await ensureSearchTrackingCsvReady(projectHandle);
   const file = await csvState.csvHandle.getFile();

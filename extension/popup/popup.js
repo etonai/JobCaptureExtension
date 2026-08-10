@@ -124,7 +124,10 @@ async function trackRecentPostingsScan(tabUrl, currentPageTotal) {
     currentPageTotal
   );
   await saveRecentPostingsTrackingState(state);
-  await updateLastSearchTrackingRow({ recentPostings: recentPostingsRunningTotal(state) });
+  const result = await updateLastSearchTrackingRow({ recentPostings: recentPostingsRunningTotal(state) });
+  if (result?.skipped) {
+    console.debug('Skipped search-tracking.csv Recent Postings update:', result.reason);
+  }
 }
 
 async function scanRecentPostings() {
@@ -161,7 +164,7 @@ async function scanRecentPostings() {
     try {
       await trackRecentPostingsScan(tab.url, listings.length);
     } catch (error) {
-      console.warn('Failed to update search-tracking.csv Recent Postings:', error);
+      console.warn(`Failed to update search-tracking.csv Recent Postings: ${error?.name || 'Error'}: ${error?.message || String(error)}`);
     }
     if (listings.length === 0) {
       const debugSuffix = result.debug
@@ -463,12 +466,15 @@ async function goToNextPage() {
     setStatus('capturing', 'Advancing Page', 'Loading the next page of results. Once it loads, click the Recent Postings refresh button to rescan.');
 
     try {
-      await updateLastSearchTrackingRow({
+      const result = await updateLastSearchTrackingRow({
         postsSeen: nextStart,
         recentPostings: recentPostingsState ? recentPostingsRunningTotal(recentPostingsState) : undefined
       });
+      if (result?.skipped) {
+        console.debug('Skipped search-tracking.csv paging totals update:', result.reason);
+      }
     } catch (error) {
-      console.warn('Failed to update search-tracking.csv paging totals:', error);
+      console.warn(`Failed to update search-tracking.csv paging totals: ${error?.name || 'Error'}: ${error?.message || String(error)}`);
     }
   } catch (error) {
     setStatus('error', 'Next Page Failed', error.message || String(error));

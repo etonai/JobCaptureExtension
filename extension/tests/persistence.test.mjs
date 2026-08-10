@@ -385,6 +385,39 @@ async function runUpdateLastSearchTrackingRowPostsSeenTest() {
   delete globalThis.chrome;
 }
 
+async function runUpdateLastSearchTrackingRowSkipsWithoutPromptTest() {
+  const projectHandle = fakeProjectHandle();
+  setStoredProjectHandle(projectHandle);
+
+  globalThis.chrome = { storage: { local: fakeChromeStorageLocal() } };
+  await appendSearchTrackingRow(SEARCH_TYPE_JOB_SEARCH, new Date(2026, 6, 27, 9, 15, 0));
+
+  let permission = 'prompt';
+  let requestPermissionCalls = 0;
+  projectHandle.queryPermission = async () => permission;
+  projectHandle.requestPermission = async () => {
+    requestPermissionCalls += 1;
+    throw new Error('requestPermission must not be called from a non-user-gesture update.');
+  };
+
+  const skippedResult = await updateLastSearchTrackingRow({ recentPostings: 9 });
+  assert(skippedResult.ok === false && skippedResult.skipped === true, `Expected update to be skipped without granted permission, got ${JSON.stringify(skippedResult)}.`);
+  assert(requestPermissionCalls === 0, 'Expected requestPermission to never be called from updateLastSearchTrackingRow.');
+
+  const unchangedCsvText = await projectHandle.rootFiles.get(SEARCH_TRACKING_CSV_FILENAME).text();
+  assert(unchangedCsvText.includes(',25,0,2 hours or less'), 'Expected the row to remain unchanged when the update is skipped.');
+
+  permission = 'granted';
+  const updatedResult = await updateLastSearchTrackingRow({ recentPostings: 9 });
+  assert(updatedResult.ok === true && updatedResult.updated === true, `Expected update to succeed once permission is granted, got ${JSON.stringify(updatedResult)}.`);
+  assert(requestPermissionCalls === 0, 'Expected requestPermission still never to be called even once granted.');
+
+  const updatedCsvText = await projectHandle.rootFiles.get(SEARCH_TRACKING_CSV_FILENAME).text();
+  assert(updatedCsvText.includes(',25,9,2 hours or less'), 'Expected the row to update once permission is already granted.');
+
+  delete globalThis.chrome;
+}
+
 async function runSearchTrackingLegacyMigrationTest() {
   const projectHandle = fakeProjectHandle();
   setStoredProjectHandle(projectHandle);
@@ -573,6 +606,7 @@ await runSaveCaptureRecordTest();
 await runAppendCaptureRecordToCsvTest();
 await runAppendSearchTrackingRowTest();
 await runUpdateLastSearchTrackingRowPostsSeenTest();
+await runUpdateLastSearchTrackingRowSkipsWithoutPromptTest();
 await runSearchTrackingLegacyMigrationTest();
 await runSearchTrackingPreviousSchemaMigrationTest();
 runRecentPostingsTrackingTests();
