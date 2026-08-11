@@ -79,6 +79,7 @@ await import('../popup/popup.js');
 
 const buttonSelectors = [
   '#captureButton',
+  '#capturePageButton',
   '#saveButton',
   '#recordListingButton',
   '#optionsButton',

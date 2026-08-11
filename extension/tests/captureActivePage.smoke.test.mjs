@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { captureActivePage, captureRecentJobPostings } from '../content/captureActivePage.js';
+import { captureActivePage, captureGenericPage, captureRecentJobPostings } from '../content/captureActivePage.js';
 
 function textNode(text) {
   return { nodeType: 3, textContent: text };
@@ -894,6 +894,69 @@ function runHtmlFixtureReferenceChecks() {
   assert(easyPostHtml.includes('data-rehydrated="true"'), 'Expected EasyPost saved HTML to be a hydrated LinkedIn app snapshot.');
   assert(starbucksHtml.includes('data-rehydrated="true"'), 'Expected Starbucks saved HTML to be a hydrated LinkedIn app snapshot.');
 }
+// DevCycle030: captureGenericPage() is for arbitrary, non-LinkedIn career
+// pages. This body text mirrors the sidebar label/value shape and salary
+// sentence observed in doc/examples/Stripe*.mhtml (see DevCycle030.md).
+function runGenericPageRichMetadataTest() {
+  setMockPage({
+    href: 'https://example.com/careers/listing/software-engineer/123',
+    hostname: 'example.com',
+    pathname: '/careers/listing/software-engineer/123',
+    title: 'Acme Careers | Senior Software Engineer',
+    bodyText: [
+      'Senior Software Engineer',
+      'About the team',
+      'We build things.',
+      'The annual US base salary range for this role is $156,800 - $235,200. Additional benefits apply.',
+      'Apply now',
+      'Company',
+      'Acme',
+      'Team',
+      'Platform',
+      'Office location',
+      'Seattle',
+      'Employment type',
+      'Full time',
+      'Apply for this role'
+    ].join('\n')
+  });
+
+  const result = captureGenericPage();
+  assert(result.ok === true, 'Expected captureGenericPage to always report ok:true.');
+  assert(result.record.applyType === 'DIRECT', 'Expected applyType to always be DIRECT for a generic capture.');
+  assert(result.record.company === 'Acme', `Expected company to resolve to Acme, got ${result.record.company}.`);
+  assert(result.record.title === 'Senior Software Engineer', `Expected title to resolve from <title>, got ${result.record.title}.`);
+  assert(result.record.location === 'Seattle', `Expected location to resolve from the sidebar label pair, got ${result.record.location}.`);
+  assert(result.record.employmentType === 'Full-time', `Expected "Full time" to normalize to Full-time, got ${result.record.employmentType}.`);
+  assert(result.record.salaryText === '$156,800 - $235,200', `Expected salary text without a trailing sentence period, got "${result.record.salaryText}".`);
+  assert(result.record.workplaceType === 'UNKNOWN', 'Expected workplaceType to fall back to UNKNOWN when not present on the page.');
+  assert(result.record.postedText === 'UNKNOWN', 'Expected postedText to fall back to UNKNOWN when not present on the page.');
+  assert(result.record.linkedinJobId === 'UNKNOWN', 'Expected linkedinJobId to be UNKNOWN for a non-LinkedIn capture.');
+  assert(result.record.description.includes('We build things.'), 'Expected description to capture body text between the title and the Apply marker.');
+  assert(!result.record.description.includes('Company'), 'Expected description to exclude the sidebar label block, which starts at "Apply now".');
+}
+
+function runGenericPageBarePageFallbackTest() {
+  setMockPage({
+    href: 'https://example.com/jobs/456',
+    hostname: 'example.com',
+    pathname: '/jobs/456',
+    title: '',
+    bodyText: ''
+  });
+
+  const result = captureGenericPage();
+  assert(result.ok === true, 'Expected captureGenericPage to always report ok:true, even for a bare page.');
+  assert(result.record.applyType === 'DIRECT', 'Expected applyType to always be DIRECT.');
+  assert(result.record.company === '', 'Expected an unresolved company to stay an empty string (the popup assigns the NNNU_UNKNOWN placeholder, not the content script).');
+  assert(result.record.title === 'UNKNOWN', 'Expected title to fall back to UNKNOWN with no usable <title>.');
+  assert(result.record.location === 'UNKNOWN', 'Expected location to fall back to UNKNOWN.');
+  assert(result.record.description === 'UNKNOWN', 'Expected description to fall back to UNKNOWN with no body text.');
+  const warningFields = result.warnings.map((warning) => warning.field);
+  assert(warningFields.includes('company'), 'Expected a warning for the unresolved company field.');
+  assert(warningFields.includes('description'), 'Expected a warning for the unresolved description field.');
+}
+
 function runUnsupportedPageTest() {
   setMockPage({
     href: 'https://example.com/',
@@ -913,6 +976,8 @@ function runUnsupportedPageTest() {
 
 runEasyPostFixtureTest();
 runStarbucksFixtureTest();
+runGenericPageRichMetadataTest();
+runGenericPageBarePageFallbackTest();
 runSalaryAbsentDoesNotUseUnrelatedHeaderSalaryTest();
 runMarkdownDescriptionDomTest();
 runUnsupportedPageTest();

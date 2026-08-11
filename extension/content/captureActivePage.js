@@ -1037,5 +1037,273 @@ export function captureRecentJobPostings(ageFilter) {
   };
 }
 
+// This function is injected on its own via `chrome.scripting.executeScript({
+// func: captureGenericPage })`, which serializes only this function's body —
+// see the note above `detailPageListing()` for why it can't call back into
+// `captureActivePage()` or share its helpers via closure. It is deliberately
+// self-contained, duplicating the handful of small helpers it needs.
+//
+// Unlike `captureActivePage()`, this never gates on being "supported": it is
+// meant for arbitrary, non-LinkedIn career pages, so it always returns
+// `ok: true` and does its best. Fields it can't confidently resolve are set
+// to the literal string 'UNKNOWN' (DevCycle030) rather than left blank, with
+// one exception: `company` is left as an empty string when unresolved, since
+// assigning its `NNNU_UNKNOWN` numbered placeholder requires reading
+// `job-tracking.csv` for the next available number, which only the popup
+// (with project-folder access) can do — see `getNextUnknownCompanyPlaceholder()`
+// in `extension/shared/saveListing.js`.
+export function captureGenericPage() {
+  function normalizeLine(value) {
+    return String(value ?? '').replace(/\s+/g, ' ').trim();
+  }
+
+  function normalizeBlock(value) {
+    return String(value ?? '')
+      .replace(/\r\n/g, '\n')
+      .replace(/\r/g, '\n')
+      .split('\n')
+      .map((line) => line.replace(/[ \t]+/g, ' ').trim())
+      .join('\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+  }
+
+  function visibleLines(text) {
+    return String(text ?? '')
+      .replace(/\r\n/g, '\n')
+      .replace(/\r/g, '\n')
+      .split('\n')
+      .map(normalizeLine)
+      .filter(Boolean);
+  }
+
+  function isUnresolved(value) {
+    return value == null || value === '' || value === 'UNKNOWN';
+  }
+
+  function getLocalParts(date) {
+    const yyyy = String(date.getFullYear()).padStart(4, '0');
+    const mm = String(date.getMonth() + 1).padStart(2, '0');
+    const dd = String(date.getDate()).padStart(2, '0');
+    const hh = String(date.getHours()).padStart(2, '0');
+    const mi = String(date.getMinutes()).padStart(2, '0');
+    const ss = String(date.getSeconds()).padStart(2, '0');
+    return {
+      date: `${yyyy}-${mm}-${dd}`,
+      time: `${hh}:${mi}:${ss}`
+    };
+  }
+
+  function createEmptyRecord(now, url) {
+    const local = getLocalParts(now);
+    return {
+      schemaVersion: 1,
+      captureTimeUtc: now.toISOString(),
+      captureDateLocal: local.date,
+      captureTimeLocal: local.time,
+      sourceWebsite: 'Generic',
+      url,
+      linkedinJobId: 'UNKNOWN',
+      company: '',
+      title: 'UNKNOWN',
+      location: 'UNKNOWN',
+      workplaceType: 'UNKNOWN',
+      employmentType: 'UNKNOWN',
+      salaryText: 'UNKNOWN',
+      postedText: 'UNKNOWN',
+      applicantCountText: 'UNKNOWN',
+      promotionText: '',
+      hiringStatusText: '',
+      applyType: 'DIRECT',
+      description: 'UNKNOWN',
+      descriptionMarkdown: '',
+      posterRequirements: '',
+      benefits: '',
+      additionalSections: [],
+      savedListingPath: '',
+      notes: ''
+    };
+  }
+
+  // Sidebar-style "Label" line immediately followed by a "Value" line is a
+  // common rendering for structured job metadata on ATS-hosted career pages
+  // (confirmed against doc/examples/Stripe*.mhtml, whose innerText renders
+  // "Company\nStripe\nTeam\nSecurity\nOffice location\nSeattle\nEmployment
+  // type\nFull time" as consecutive lines). Matching on an exact,
+  // case-insensitive label line keeps this from misfiring on ordinary prose,
+  // which essentially never consists of a line reading just "Location".
+  const LABEL_FIELD_MAP = [
+    { labels: ['company', 'employer', 'hiring company'], field: 'company' },
+    { labels: ['location', 'office location', 'job location'], field: 'location' },
+    { labels: ['employment type', 'job type'], field: 'employmentType' },
+    { labels: ['workplace type', 'work type', 'remote type'], field: 'workplaceType' },
+    { labels: ['posted', 'date posted', 'posted on'], field: 'postedText' },
+    { labels: ['applicants', 'applicant count'], field: 'applicantCountText' }
+  ];
+
+  function labelFieldFor(line) {
+    const lower = line.toLowerCase();
+    return LABEL_FIELD_MAP.find((candidate) => candidate.labels.includes(lower))?.field || null;
+  }
+
+  function applyLabelPairs(lines, record) {
+    for (let index = 0; index < lines.length - 1; index += 1) {
+      const field = labelFieldFor(lines[index]);
+      if (!field || !isUnresolved(record[field])) {
+        continue;
+      }
+      const value = lines[index + 1];
+      if (!value || labelFieldFor(value)) {
+        continue;
+      }
+      if (field === 'workplaceType' && isWorkplaceTypeValue(value)) {
+        record[field] = normalizeWorkplaceType(value);
+      } else if (field === 'employmentType' && isEmploymentTypeValue(value)) {
+        record[field] = normalizeEmploymentType(value);
+      } else {
+        record[field] = value;
+      }
+    }
+  }
+
+  function isWorkplaceTypeValue(line) {
+    return /^(Remote|Hybrid|On-site|Onsite|On site)$/i.test(line);
+  }
+
+  function normalizeWorkplaceType(line) {
+    if (/^remote$/i.test(line)) return 'Remote';
+    if (/^hybrid$/i.test(line)) return 'Hybrid';
+    if (/^(on-site|onsite|on site)$/i.test(line)) return 'On-site';
+    return line;
+  }
+
+  function isEmploymentTypeValue(line) {
+    return /^(full[- ]?time|part[- ]?time|contract|temporary|internship|volunteer|other)$/i.test(line);
+  }
+
+  function normalizeEmploymentType(line) {
+    if (/^full[- ]?time$/i.test(line)) return 'Full-time';
+    if (/^part[- ]?time$/i.test(line)) return 'Part-time';
+    const known = ['Contract', 'Temporary', 'Internship', 'Volunteer', 'Other'];
+    return known.find((value) => value.toLowerCase() === line.toLowerCase()) || line;
+  }
+
+  function applyStandaloneWorkplaceAndEmploymentFallback(lines, record) {
+    for (const line of lines) {
+      if (isUnresolved(record.workplaceType) && isWorkplaceTypeValue(line)) {
+        record.workplaceType = normalizeWorkplaceType(line);
+      }
+      if (isUnresolved(record.employmentType) && isEmploymentTypeValue(line)) {
+        record.employmentType = normalizeEmploymentType(line);
+      }
+    }
+  }
+
+  // Deliberately `[\d,]*(?:\.\d+)?`, not `[\d,.]*` — a trailing sentence
+  // period (as in Stripe's "...$235,200. For sales roles...") must not be
+  // swallowed into the captured salary text as if it were a decimal point.
+  const SALARY_PATTERN = /\$\s?\d[\d,]*(?:\.\d+)?\s?[KkMm]?\s*\/?\s?(?:yr|year|hr|hour)?\s*-\s*\$?\s?\d[\d,]*(?:\.\d+)?\s?[KkMm]?(?:\s*\/?\s?(?:yr|year|hr|hour))?/i;
+
+  function findSalaryText(lines) {
+    for (const line of lines) {
+      const match = line.match(SALARY_PATTERN);
+      if (match) {
+        return normalizeLine(match[0]);
+      }
+    }
+    return '';
+  }
+
+  function titleSegments(pageTitle) {
+    return String(pageTitle ?? '').split('|').map(normalizeLine).filter(Boolean);
+  }
+
+  // "{Company} Careers | {Job Title}" (or the reverse order) is a common,
+  // unambiguous <title> convention on company-hosted career pages (confirmed
+  // against the Stripe fixture: "Stripe Careers | Software Engineer, Product
+  // Security Data Platforms"). The "X Careers" segment is what disambiguates
+  // which side is the company, so it's only trusted when that marker is
+  // present — otherwise the company is left unresolved rather than guessed
+  // from an untrustworthy segment order.
+  function titleAndCompanyFromDocumentTitle(pageTitle) {
+    const segments = titleSegments(pageTitle);
+    if (segments.length === 0) {
+      return { title: '', company: '' };
+    }
+    const careersIndex = segments.findIndex((segment) => /\bcareers$/i.test(segment));
+    if (careersIndex < 0) {
+      return { title: segments[0], company: '' };
+    }
+    const company = normalizeLine(segments[careersIndex].replace(/\bcareers$/i, ''));
+    const title = segments.filter((_, index) => index !== careersIndex).join(' | ');
+    return { title, company };
+  }
+
+  // Bounded the same way LinkedIn's parser bounds its description (a start
+  // marker through an "Apply" line), but generic pages have no "About the
+  // job" heading to anchor on, so the start marker is the job-title line
+  // itself (already resolved from <title>) when it can be found verbatim in
+  // the body text. Falls back to the whole body when either boundary can't
+  // be located, which is a coarser but still best-effort result.
+  function findDescription(lines, titleLine) {
+    const titleIndex = titleLine ? lines.indexOf(titleLine) : -1;
+    const searchFrom = titleIndex >= 0 ? titleIndex + 1 : 0;
+    const applyIndex = lines.findIndex((line, index) => index >= searchFrom && /^apply\b/i.test(line));
+    const start = titleIndex >= 0 ? titleIndex + 1 : 0;
+    const end = applyIndex >= 0 ? applyIndex : lines.length;
+    if (end <= start) {
+      return '';
+    }
+    return normalizeBlock(lines.slice(start, end).join('\n'));
+  }
+
+  function missingFieldWarnings(record) {
+    const requiredForQuality = ['company', 'title', 'location', 'description'];
+    return requiredForQuality
+      .filter((field) => isUnresolved(record[field]))
+      .map((field) => ({ field, message: `${field} was not extracted.` }));
+  }
+
+  const now = new Date();
+  const url = window.location.href;
+  const pageTitle = document.title || '';
+  const bodyText = document.body?.innerText || '';
+  const lines = visibleLines(bodyText);
+
+  const record = createEmptyRecord(now, url);
+
+  applyLabelPairs(lines, record);
+
+  const fromTitle = titleAndCompanyFromDocumentTitle(pageTitle);
+  if (fromTitle.title) {
+    record.title = fromTitle.title;
+  }
+  if (fromTitle.company && isUnresolved(record.company)) {
+    record.company = fromTitle.company;
+  }
+
+  applyStandaloneWorkplaceAndEmploymentFallback(lines, record);
+
+  const salary = findSalaryText(lines);
+  if (salary) {
+    record.salaryText = salary;
+  }
+
+  const description = findDescription(lines, fromTitle.title);
+  if (description) {
+    record.description = description;
+    record.descriptionMarkdown = description;
+  }
+
+  return {
+    ok: true,
+    captureTimeUtc: record.captureTimeUtc,
+    url,
+    pageTitle,
+    record,
+    warnings: missingFieldWarnings(record),
+    signals: {}
+  };
+}
 
 

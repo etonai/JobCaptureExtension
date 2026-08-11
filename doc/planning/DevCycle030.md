@@ -1,8 +1,8 @@
 # DevCycle 030: Capture Non-LinkedIn Job Listings
 
-**Status:** Planning
+**Status:** Work Complete
 **Start Date:** 2026-08-11
-**Target Completion:** TBD
+**Target Completion:** 2026-08-11
 **Focus:** Add a "Capture Page" button that captures job listings from arbitrary (non-LinkedIn) career pages into the same `job-tracking.csv` / `saved-listings` pipeline used for LinkedIn captures.
 
 ---
@@ -29,74 +29,73 @@ Today, `captureActivePage()` (`extension/content/captureActivePage.js`) only rec
 
 ### Phase 1: Generic Page Parser
 
-**Status:** Planning
+**Status:** Work Complete
 
-- [ ] Inspect the Stripe example (`doc/examples/Stripe Careers _ Software Engineer, Product Security Data Platforms.mhtml`) to identify what's realistically parseable from a generic careers page (page title, `og:` / JSON-LD `JobPosting` meta tags if present, heading text, etc.) versus what should just fall back to `UNKNOWN`.
-- [ ] Add a new capture function (e.g. `captureGenericPage()`), likely alongside `captureActivePage()` in `extension/content/captureActivePage.js` or a new sibling module, that:
-  - Never checks for a LinkedIn hostname — it should treat any page as capturable.
-  - Attempts to extract `company`, `title`, `location`, `workplaceType`, `employmentType`, `postedText`, `applicantCountText`, `salaryText`, and a `description`/`descriptionMarkdown` using generic signals (document title, common meta tags, JSON-LD `JobPosting` schema if present). Reuse existing helpers from `captureActivePage.js` (`normalizeLine`, `normalizeBlock`, markdown extraction helpers) where they're not LinkedIn-specific, rather than duplicating them.
-  - Sets any field other than `company` that it cannot confidently determine to the literal string `'UNKNOWN'` (not `''`).
-  - Leaves `company` resolution to the numbered-placeholder logic below when it can't be parsed — the content script itself doesn't know the next number (it has no access to `job-tracking.csv`), so it should return an unresolved-company signal (e.g. `record.company = ''`, or a `companyResolved: false` flag) for the caller to fill in.
-  - Sets `applyType` to `'DIRECT'` unconditionally.
-  - Sets `linkedinJobId` to `'UNKNOWN'` (or leaves the field out of scope — see Open Questions).
-  - Returns the same `{ ok, record, warnings, ... }` envelope shape `captureActivePage()` returns, so `popup.js` can reuse `applyCaptureResult`/`setResult` largely as-is.
-- [ ] Add a `nextUnknownCompanyNumber()`-style helper (likely in `extension/shared/saveListing.js` or `csv.js`, since it needs `job-tracking.csv` access already available there) that:
-  - Reads `job-tracking.csv`'s `company` column, matches values against `/^(\d{3})U_/` (prefix only — deliberately does **not** require a trailing `UNKNOWN`, since the user will have manually renamed some of them to `###U_COMPANYNAME` by the time this runs again), and returns one more than the highest 3-digit number found (or `1` if none exist).
-  - Zero-pads the returned number to 3 digits when building the placeholder (`String(n).padStart(3, '0')`), and only relies on the regex capturing exactly 3 digits to parse existing values — a placeholder is `###U_`, not `##U_` or `####U_`.
-  - Ignores any company text that doesn't start with exactly 3 digits followed by `U_` (so a company literally named e.g. "500U Logistics" — 3 digits, but no underscore after `U` — is correctly not misread as a placeholder).
-  - Runs when the popup applies the "Capture Page" result (after a successful capture, before Save is available) rather than at content-script injection time, since it needs a project-folder file read.
-- [ ] Confirm `baseListingFilename()` (`extension/shared/filename.js`) behaves sensibly for a `company` value like `001U_UNKNOWN` (it will slugify to `001u-unknown`, which is fine — no code change expected, just verify).
+- [x] Inspect the Stripe example (`doc/examples/Stripe Careers _ Software Engineer, Product Security Data Platforms.mhtml`) to identify what's realistically parseable from a generic careers page (page title, `og:` / JSON-LD `JobPosting` meta tags if present, heading text, etc.) versus what should just fall back to `UNKNOWN`. Findings: no JSON-LD `JobPosting` (resolves Open Question 2 — not implemented, since it's absent from the only available fixture); `og:title`/`og:description` exist but add nothing `<title>` doesn't already have; `<title>` follows a `"{Company} Careers | {Job Title}"` convention; the rendered body text contains an unlabeled-but-structured sidebar of `Label` line immediately followed by `Value` line (`Company` / `Team` / `Office location` / `Employment type`); salary appears embedded mid-sentence ("...is $156,800 - $235,200. For sales roles...").
+- [x] Added `captureGenericPage()` in `extension/content/captureActivePage.js` (after `captureRecentJobPostings()`), self-contained per the same injection constraint documented above `detailPageListing()` (helpers duplicated, not imported). It:
+  - Never gates on hostname or "supported" status — always returns `ok: true`.
+  - Extracts `company`/`location`/`employmentType`/`workplaceType`/`postedText`/`applicantCountText` via an exact-match label-line → next-line scan (`LABEL_FIELD_MAP`/`applyLabelPairs`); `company`/`title` also via the `<title>`'s `"X Careers"` convention (`titleAndCompanyFromDocumentTitle`) when the label scan didn't resolve them; `salaryText` via a `$X - $Y` regex scanned across all lines (not full-line match, since it's often embedded in a sentence); `description`/`descriptionMarkdown` as the body text between the resolved title line and the first `/^apply\b/i` line.
+  - Sets every field other than `company` to `'UNKNOWN'` when unresolved.
+  - Leaves `company` as `''` when unresolved — the content script has no project-folder access, so the popup (Phase 2) resolves the placeholder number.
+  - Sets `applyType` to `'DIRECT'` unconditionally, `linkedinJobId` to `'UNKNOWN'` (Open Question 1, decided as documented below).
+  - Returns the same `{ ok, record, warnings, ... }` envelope `captureActivePage()` returns.
+  - Two bugs were caught and fixed during hand-verification against the decoded Stripe fixture: the salary regex's `[\d,.]*` character class swallowed the sentence's trailing period as if it were a decimal point (fixed to `[\d,]*(?:\.\d+)?`), and label-pair-extracted `employmentType`/`workplaceType` values (e.g. "Full time") weren't run through the existing normalizer the way the standalone-line fallback was (fixed by normalizing at the point `applyLabelPairs` assigns them).
+- [x] Added `nextUnknownCompanyNumber(csvText)` and `formatUnknownCompanyPlaceholder(n)` to `extension/shared/csv.js`: the former matches `company` values against `/^(\d{3})U_/` (prefix only, never requiring trailing `UNKNOWN`) and returns one past the highest match; the latter zero-pads to 3 digits (`String(n).padStart(3, '0')`).
+- [x] Added `getNextUnknownCompanyPlaceholder()` to `extension/shared/saveListing.js`: reads `job-tracking.csv` directly (read-only permission via `ensureProjectReadPermission`, tolerating a missing file) and returns `formatUnknownCompanyPlaceholder(nextUnknownCompanyNumber(csvText))`. Runs at capture-apply time in the popup (Phase 2), not at content-script injection time.
+- [x] Confirmed `baseListingFilename()` needs no changes: `001U_UNKNOWN` slugifies to `001u-unknown` and leads the `.json`/`.txt`/`.md` filenames as intended.
 
 **Technical Notes:**
-Relevant files: `extension/content/captureActivePage.js` (existing LinkedIn parser and helpers to reuse), `extension/shared/filename.js` (`baseListingFilename`, `slugify`).
+Relevant files: `extension/content/captureActivePage.js`, `extension/shared/csv.js`, `extension/shared/saveListing.js`, `extension/shared/filename.js` (verified, unchanged).
 
 ### Phase 2: Popup UI Wiring
 
-**Status:** Planning
+**Status:** Work Complete
 
-- [ ] Add a `capturePageButton` ("Capture Page") to `extension/popup/popup.html`, positioned directly below `#captureButton` ("Capture Active Tab").
-- [ ] Wire a `runCapturePage()` handler in `extension/popup/popup.js`, mirroring `runCapture()`/`captureActiveTabWithChecks()` but injecting `captureGenericPage` instead of `captureActivePage` via `chrome.scripting.executeScript`.
-- [ ] After a successful capture with no resolved `company`, call Phase 1's `nextUnknownCompanyNumber()` helper against the project folder's `job-tracking.csv` and set `record.company` to the zero-padded `` `${String(n).padStart(3, '0')}U_UNKNOWN` `` before displaying the result / enabling Save.
-- [ ] Confirm the existing result panel, prior-company warning, Save/Record Listing buttons, and notes textarea all work unmodified against a `DIRECT`-sourced record (they're generic over `lastCaptureRecord` today, so this should mostly be "wire the button and reuse `applyCaptureResult`").
+- [x] Added `#capturePageButton` ("Capture Page") to `extension/popup/popup.html`, directly below `#captureButton`.
+- [x] Added `runCapturePage()`/`captureGenericPageWithChecks()` to `extension/popup/popup.js`, mirroring `runCapture()`/`captureActiveTabWithChecks()` but injecting `captureGenericPage`.
+- [x] After a successful capture with no resolved `company`, `captureGenericPageWithChecks()` calls `resolveUnknownCompanyPlaceholder()` (wrapping `getNextUnknownCompanyPlaceholder()`, falling back to `formatUnknownCompanyPlaceholder(1)` if the project folder read fails, so a permission problem doesn't block the capture itself — Save surfaces the same problem anyway) and sets `record.company` before the result is displayed / Save is enabled.
+- [x] Confirmed the existing result panel, prior-company warning, Save/Record Listing buttons, and notes textarea all work unmodified — `applyCaptureResult`/`setResult`/`findPriorCompanyWarning` are all generic over `lastCaptureRecord`, so `runCapturePage()` only needed its own injected function and the placeholder-resolution step. `captureButton`/`capturePageButton` are now disabled/re-enabled together across all four capture/save/record code paths.
 
 **Technical Notes:**
-Relevant files: `extension/popup/popup.html`, `extension/popup/popup.js` (`elements`, `runCapture`, `captureActiveTabWithChecks`, `applyCaptureResult`).
+Relevant files: `extension/popup/popup.html`, `extension/popup/popup.js` (`elements`, `runCapture`, `runCapturePage`, `captureActiveTabWithChecks`, `captureGenericPageWithChecks`, `resolveUnknownCompanyPlaceholder`, `applyCaptureResult`).
 
 ### Phase 3: Save Pipeline Verification
 
-**Status:** Planning
+**Status:** Work Complete
 
-- [ ] Confirm `saveCaptureRecord()` (`extension/shared/saveListing.js`) — used by the existing "Save Capture" button — needs no changes to handle a `DIRECT` record: it only requires `url`, `captureTimeUtc`, `captureDateLocal`, `captureTimeLocal` (via `assertMinimumRecord`), and already writes JSON + `.txt` + `.md` to `saved-listings/` plus a row to `job-tracking.csv` (`CSV_FILENAME`).
-- [ ] Verify `recordToCsvValues()`/`CSV_COLUMNS` (`extension/shared/csv.js`) round-trip `'UNKNOWN'` and `###U_UNKNOWN` field values correctly (no special-casing needed — they're just strings).
-- [ ] Double check there's no race between Phase 2's `nextUnknownCompanyNumber()` read and the eventual save: the number is read once at capture time, and the CSV row for *this* capture doesn't exist yet at that point, so it can't self-collide — but confirm a second, not-yet-saved "Capture Page" click in the same popup session re-reads the CSV rather than caching a stale next-number (see Open Question 5).
+- [x] Confirmed `saveCaptureRecord()` needed no changes: verified end-to-end with a fake project handle (see `runGetNextUnknownCompanyPlaceholderTest` in `extension/tests/persistence.test.mjs`) that a `DIRECT`/`UNKNOWN`-filled record with a `NNNU_UNKNOWN` company saves cleanly (JSON/TXT/MD written, CSV row appended, filename starts with the placeholder).
+- [x] Verified `recordToCsvValues()`/`CSV_COLUMNS` round-trip `'UNKNOWN'` and `###U_UNKNOWN` correctly — no special-casing needed.
+- [x] Confirmed no race: the placeholder number is computed once per capture (in `captureGenericPageWithChecks()`), by reading `job-tracking.csv` fresh each time — a second, not-yet-saved "Capture Page" click in the same session re-reads the file rather than reusing a cached number. Two such captures without an intervening save can still propose the same number (accepted per Open Question 5).
 
 **Technical Notes:**
-No new CSV column is expected. This phase is verification, not new implementation, unless testing surfaces a gap.
+No new CSV column was needed. `getNextUnknownCompanyPlaceholder()` needed to be added to `saveListing.js` (see Phase 1) but that was scoped as new implementation there, not here.
 
 ### Phase 4: Tests
 
-**Status:** Planning
+**Status:** Work Complete
 
-- [ ] Add unit tests for the new generic parser (likely `extension/tests/captureGenericPage.test.mjs` or extending `captureActivePage.smoke.test.mjs`), following the existing pattern of hand-built fake DOM nodes (see `captureActivePage.smoke.test.mjs`) informed by the structure observed in the Stripe `.mhtml` fixture.
-- [ ] Cover: a page with rich metadata (most fields parsed), a bare page with none (everything falls back to `UNKNOWN`, `company` falls back to `###U_UNKNOWN`), `applyType` always `DIRECT`, and `notes` passthrough from the popup.
-- [ ] Add focused tests for `nextUnknownCompanyNumber()`: empty CSV → `1`; existing `001U_UNKNOWN`/`003U_UNKNOWN` rows → `4`; a row already manually renamed to `002U_Acme` still counts toward the max (prefix-only match, no `UNKNOWN` requirement); a real company name that happens to contain digits followed by `U_` in an unrelated way is not miscounted; non-3-digit or malformed near-matches (e.g. `12U_UNKNOWN`, `1234U_UNKNOWN`) are ignored; output is always zero-padded to 3 digits (e.g. `9` → `009U_UNKNOWN`).
-- [ ] Update `extension/README.md` to document the new button and capture path, consistent with how prior DevCycles have documented behavior changes there.
+- [x] Added `runGenericPageRichMetadataTest()` and `runGenericPageBarePageFallbackTest()` to `extension/tests/captureActivePage.smoke.test.mjs`, using the existing `setMockPage()` helper with body text mirroring the Stripe fixture's sidebar/salary-sentence shape. Covers: rich-metadata resolution (company/title/location/employmentType/salary), `UNKNOWN` fallback for absent fields, `applyType` always `DIRECT`, `linkedinJobId` always `UNKNOWN`, and the bare-page case where `company` stays `''` (not a placeholder — that's the popup's job) with warnings for company/description.
+- [x] Added `nextUnknownCompanyNumber`/`formatUnknownCompanyPlaceholder` assertions to `runCsvTests()` in `extension/tests/persistence.test.mjs`: empty CSV → `1`; header-only CSV → `1`; mixed rows (`001U_UNKNOWN`, `003U_UNKNOWN`, a renamed `002U_Acme`, a non-matching `"500U Logistics"`, and out-of-width near-misses `12U_UNKNOWN`/`1234U_UNKNOWN`) → `4`; zero-padding for both `9` and `142`.
+- [x] Added `runGetNextUnknownCompanyPlaceholderTest()` to `extension/tests/persistence.test.mjs`, using the existing `fakeProjectHandle()`/`fakeWritableFile()` pattern: no CSV yet → `001U_UNKNOWN`; a seeded CSV with a renamed `004U_Acme` row → `005U_UNKNOWN`; then a full `saveCaptureRecord()` round trip with that placeholder confirming the filename and CSV row both carry it.
+- [x] `notes` passthrough was not given a separate generic-parser test: it's the same `lastCaptureRecord.notes = elements.notesInput.value` assignment `runSave()`/`runRecordListing()` already use, unchanged by this cycle, and is exercised by the existing popup smoke test's click-handler-registration check plus manual verification.
+- [x] Updated `extension/README.md` with a new "Capture Page (Non-LinkedIn Listings)" section, and bumped `extension/manifest.json` to `0.0.30.0`.
+- [x] Added `#capturePageButton` to the button-selector list in `extension/tests/popup.module.smoke.test.mjs`.
 
 **Technical Notes:**
-Relevant files: `extension/tests/captureActivePage.smoke.test.mjs` (pattern to follow), `extension/README.md`.
+All five test suites pass: `node extension/tests/{captureActivePage.smoke,pagingUrl,persistence,popup.module.smoke,searchUrlBuilder}.test.mjs`. No live-browser verification was performed (no browser environment available in this session) — see Completion Summary.
 
 ---
 
 ## Open Questions
 
 1. **What should `linkedinJobId` hold for a non-LinkedIn capture — `'UNKNOWN'`, or an empty string since the field is inherently LinkedIn-specific and not "unparsed"?**
-   Recommendation: Use `'UNKNOWN'` for consistency with every other non-`company` field per the stated goal, rather than carving out a silent exception a future reader would have to notice.
+   Decision: `'UNKNOWN'`, for consistency with every other non-`company` field per the stated goal, rather than carving out a silent exception a future reader would have to notice.
 
 2. **Should the generic parser attempt JSON-LD `JobPosting` structured-data extraction, or start with simpler signals (document title, meta tags) and treat JSON-LD as a stretch goal?**
-   Recommendation: Check what's actually present in the Stripe fixture first (Phase 1's first task) before committing to a parsing strategy — many ATS-hosted career pages (Greenhouse, Lever, Workday, etc.) do embed `JobPosting` JSON-LD, which would be far more reliable than text-position heuristics, but it's worth confirming rather than assuming.
+   Decision: Not implemented. The Stripe fixture (the only reference page available) has no JSON-LD `JobPosting` data — only `og:title`/`og:description`/`og:url`, which add nothing beyond what `<title>` already provides. The label-line/next-line sidebar scan and the `<title>` `"X Careers"` convention cover what's actually present. Revisit if a future fixture demonstrates JSON-LD is common enough to be worth the added parsing surface.
 
 3. **Does "Capture Page" need its own popup button state machine, or can it share `runCapture()`/`lastCaptureRecord` wholesale (just swapping which content-script function is injected)?**
-   Recommendation: Share as much as possible — the record shape, result panel, notes field, and Save/Record Listing buttons are already generic. A separate `runCapturePage()` should only differ in which function it injects and the resulting `sourceWebsite`/`applyType` values.
+   Decision: Shared wholesale, as recommended. `runCapturePage()`/`captureGenericPageWithChecks()` differ from `runCapture()`/`captureActiveTabWithChecks()` only in which function is injected and the added company-placeholder resolution step; `applyCaptureResult`, `setResult`, `findPriorCompanyWarning`, and the Save/Record Listing buttons required no changes.
 
 4. **Is the `###U_` counter scoped to `job-tracking.csv` only, or should it also consider `other-listings.csv` and/or existing `saved-listings/` filenames?**
    Recommendation: Scope it to `job-tracking.csv`'s `company` column only. That's the file "Capture Page" writes to, it's a single small read the popup already has infrastructure for, and it keeps the rule simple and exactly matching the user's stated instruction ("always look for `###U_` to know what to increment"). If a gap between the CSV and `saved-listings/` ever appears (e.g. a row manually deleted from the CSV but its files kept), it can be revisited then.
@@ -119,19 +118,21 @@ Relevant files: `extension/tests/captureActivePage.smoke.test.mjs` (pattern to f
 
 ## Completion Summary
 
-*Fill in when the cycle closes. Move this document to `doc/planning/completed/` afterward.*
-
-**Completion Date:** [YYYY-MM-DD]
-**Phases Completed:** [List or "All"]
-**Work Deferred:** [What was not done and why, or "None"]
+**Completion Date:** 2026-08-11
+**Phases Completed:** All
+**Work Deferred:** Live-browser verification (see Lessons / Notes below) — this cycle stops at Work Complete per [[DevelopmentProcess]]; a human should exercise "Capture Page" against a real, non-LinkedIn career page (ideally the live Stripe listing, or another ATS-hosted page) before this is marked Verified.
 
 **Accomplishments:**
-- [What was built or changed]
-- [What was built or changed]
+- Added `captureGenericPage()` (`extension/content/captureActivePage.js`): a self-contained, best-effort parser for arbitrary career pages that always returns `ok: true`, resolves `company`/`location`/`employmentType`/`workplaceType`/`postedText`/`applicantCountText` via an exact-match sidebar label-line scan, `company`/`title` also via a `<title>` `"X Careers"` convention, `salaryText` via a `$X - $Y` pattern scanned across all lines, and `description` as the body text bounded between the resolved title and the first "Apply" line — falling back to the literal string `UNKNOWN` (or `''` for `company`, pending the placeholder step) for anything unresolved.
+- Added `nextUnknownCompanyNumber()`/`formatUnknownCompanyPlaceholder()` (`extension/shared/csv.js`) and `getNextUnknownCompanyPlaceholder()` (`extension/shared/saveListing.js`) implementing the `NNNU_UNKNOWN` numbered-placeholder scheme: prefix-only matching (`/^(\d{3})U_/`) so a placeholder the user has already manually renamed to `NNNU_COMPANYNAME` still counts toward the next number.
+- Added the "Capture Page" button (`extension/popup/popup.html`) and its `runCapturePage()`/`captureGenericPageWithChecks()`/`resolveUnknownCompanyPlaceholder()` handlers (`extension/popup/popup.js`), sharing the existing result panel, prior-company warning, Save/Record Listing buttons, and notes textarea unmodified.
+- Caught and fixed two bugs during hand-verification against the Stripe fixture: a salary-regex character class that swallowed a trailing sentence period as a decimal point, and label-pair-extracted employment/workplace type values bypassing the existing normalizer.
+- Added regression coverage: two new `captureGenericPage()` tests (rich metadata, bare-page fallback) in `captureActivePage.smoke.test.mjs`; `nextUnknownCompanyNumber`/`formatUnknownCompanyPlaceholder` unit assertions and a `getNextUnknownCompanyPlaceholder()`-plus-full-save integration test in `persistence.test.mjs`; `#capturePageButton` added to the button-selector list in `popup.module.smoke.test.mjs`.
+- Documented the feature in `extension/README.md` ("Capture Page (Non-LinkedIn Listings)") and bumped `extension/manifest.json` to `0.0.30.0`.
 
 **Metrics:**
-- Files modified: [N]
-- [Other relevant measure: e.g., tests passing, lines reduced, features shipped]
+- Files modified: `extension/content/captureActivePage.js`, `extension/shared/csv.js`, `extension/shared/saveListing.js`, `extension/popup/popup.html`, `extension/popup/popup.js`, `extension/manifest.json`, `extension/README.md`, `extension/tests/captureActivePage.smoke.test.mjs`, `extension/tests/persistence.test.mjs`, `extension/tests/popup.module.smoke.test.mjs`, plus this DevCycle document.
+- Tests passing: all five suites (`captureActivePage.smoke`, `pagingUrl`, `persistence`, `popup.module.smoke`, `searchUrlBuilder`).
 
 **Lessons / Notes:**
-[Anything worth remembering for future cycles: surprises, decisions made, things that worked well or didn't.]
+`captureGenericPage()` was hand-verified against `doc/examples/Stripe*.mhtml` by decoding its quoted-printable HTML with a throwaway Node script (no browser environment was available in this session) and feeding the resulting text through the parser directly — this caught both bugs listed above before they shipped. That verification method proves the parser handles the one real fixture available; it does not prove the label-scan or `"X Careers"` heuristics generalize to other ATS platforms (Greenhouse, Lever, Workday, etc.), since no other non-LinkedIn fixture exists yet. If "Capture Page" turns out to resolve mostly `UNKNOWN` fields on real-world pages beyond Stripe-shaped ones, that's expected per this cycle's Notes and Risks, not a regression — but it's worth collecting a second reference fixture from a different ATS in a future cycle to broaden the heuristics with evidence rather than guesswork.

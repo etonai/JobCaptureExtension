@@ -194,6 +194,27 @@ export function findPriorCompanyCaptures(csvText, company) {
     matches
   };
 }
+const UNKNOWN_COMPANY_PLACEHOLDER_PATTERN = /^(\d{3})U_/;
+const UNKNOWN_COMPANY_PLACEHOLDER_DIGITS = 3;
+
+// Matches on the `###U_` prefix alone, never on a trailing `UNKNOWN` — the
+// user's workflow is to manually rename each placeholder's company to
+// `###U_COMPANYNAME` afterward (DevCycle030), so the number must stay
+// findable, and the counter must keep incrementing past it, even after
+// `UNKNOWN` has been replaced with a real name.
+export function nextUnknownCompanyNumber(csvText) {
+  const highest = csvRowsToObjects(csvText).reduce((max, row) => {
+    const match = UNKNOWN_COMPANY_PLACEHOLDER_PATTERN.exec(String(row.company || ''));
+    const n = match ? Number(match[1]) : 0;
+    return n > max ? n : max;
+  }, 0);
+  return highest + 1;
+}
+
+export function formatUnknownCompanyPlaceholder(n) {
+  return `${String(n).padStart(UNKNOWN_COMPANY_PLACEHOLDER_DIGITS, '0')}U_UNKNOWN`;
+}
+
 export function parseOldTrackingCompanies(text) {
   return String(text ?? '')
     .replace(/^\uFEFF/, '')

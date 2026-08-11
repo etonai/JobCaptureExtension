@@ -1,7 +1,9 @@
 import {
   CSV_HEADER_LINE,
   CSV_HEADER_TEXT,
+  formatUnknownCompanyPlaceholder,
   LEGACY_SEARCH_CSV_HEADER_LINE,
+  nextUnknownCompanyNumber,
   parseCsvRows,
   PREVIOUS_SEARCH_CSV_HEADER_LINE,
   SEARCH_CSV_HEADER_LINE,
@@ -21,7 +23,12 @@ import {
   savedDescriptionTextPath,
   savedListingPath
 } from './filename.js';
-import { ensureProjectPermission, getStoredProjectFolder, queryProjectPermission } from './projectFolderStore.js';
+import {
+  ensureProjectPermission,
+  ensureProjectReadPermission,
+  getStoredProjectFolder,
+  queryProjectPermission
+} from './projectFolderStore.js';
 
 const SAVED_LISTINGS_FOLDER = 'saved-listings';
 const CSV_FILENAME = 'job-tracking.csv';
@@ -255,6 +262,33 @@ export async function updateLastSearchTrackingRow({ postsSeen, recentPostings } 
 export function updateLastSearchTrackingRowPostsSeen(postsSeen) {
   return updateLastSearchTrackingRow({ postsSeen });
 }
+// Read-only lookup used by "Capture Page" (DevCycle030) when a page's
+// company couldn't be parsed. Reads job-tracking.csv directly (rather than
+// going through the prior-company cache) so the number reflects the file's
+// current contents, including any placeholders the user has already
+// manually renamed to `###U_COMPANYNAME` since the cache was last refreshed.
+export async function getNextUnknownCompanyPlaceholder() {
+  const projectHandle = await getStoredProjectFolder();
+  if (!projectHandle) {
+    throw new Error('Project folder is not configured. Open Options and choose a project folder before capturing a page.');
+  }
+
+  await ensureProjectReadPermission(projectHandle);
+
+  let csvText = '';
+  try {
+    const csvHandle = await projectHandle.getFileHandle(CSV_FILENAME, { create: false });
+    const file = await csvHandle.getFile();
+    csvText = await file.text();
+  } catch (error) {
+    if (error?.name !== 'NotFoundError') {
+      throw error;
+    }
+  }
+
+  return formatUnknownCompanyPlaceholder(nextUnknownCompanyNumber(csvText));
+}
+
 export async function initializeProjectStructure(projectHandle) {
   await ensureProjectPermission(projectHandle);
   const savedListingsHandle = await projectHandle.getDirectoryHandle(SAVED_LISTINGS_FOLDER, { create: true });

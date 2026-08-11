@@ -1,9 +1,11 @@
-import { captureActivePage, captureRecentJobPostings } from '../content/captureActivePage.js';
+import { captureActivePage, captureGenericPage, captureRecentJobPostings } from '../content/captureActivePage.js';
 import { ensureProjectReadPermission, getProjectFolderStatus, getStoredProjectFolder } from '../shared/projectFolderStore.js';
 import { findCachedPriorCompanyWarning, findPriorCompanyInCache, refreshPriorCompanyCache } from '../shared/priorCompanyCache.js';
+import { formatUnknownCompanyPlaceholder } from '../shared/csv.js';
 import {
   appendCaptureRecordToCsv,
   appendSearchTrackingRow,
+  getNextUnknownCompanyPlaceholder,
   OTHER_LISTINGS_CSV_FILENAME,
   saveCaptureRecord,
   SEARCH_TYPE_JOB_SEARCH,
@@ -30,6 +32,7 @@ const AUTO_CAPTURE_POLL_MS = 100;
 
 const elements = {
   captureButton: document.querySelector('#captureButton'),
+  capturePageButton: document.querySelector('#capturePageButton'),
   saveButton: document.querySelector('#saveButton'),
   recordListingButton: document.querySelector('#recordListingButton'),
   notesInput: document.querySelector('#notesInput'),
@@ -322,6 +325,7 @@ async function captureActiveTabWithChecks() {
 async function runCapture() {
   clearResult();
   elements.captureButton.disabled = true;
+  elements.capturePageButton.disabled = true;
   setStatus('capturing', 'Capturing', 'Reading the active tab.');
 
   try {
@@ -330,6 +334,59 @@ async function runCapture() {
     setStatus('error', 'Capture Failed', error.message || String(error));
   } finally {
     elements.captureButton.disabled = false;
+    elements.capturePageButton.disabled = false;
+  }
+}
+
+// DevCycle030: when captureGenericPage() couldn't resolve a company, it
+// leaves `record.company` as ''. Falling back to `001U_UNKNOWN` here (rather
+// than propagating the read failure) keeps a project-folder problem from
+// blocking the capture itself — Save will surface the same problem anyway
+// once it tries to write.
+async function resolveUnknownCompanyPlaceholder() {
+  try {
+    return await getNextUnknownCompanyPlaceholder();
+  } catch (error) {
+    return formatUnknownCompanyPlaceholder(1);
+  }
+}
+
+async function captureGenericPageWithChecks() {
+  const tab = await getActiveTab();
+  const [injectionResult] = await chrome.scripting.executeScript({
+    target: { tabId: tab.id },
+    func: captureGenericPage
+  });
+
+  const result = injectionResult?.result;
+  if (!result) {
+    throw new Error('The active tab did not return a capture result.');
+  }
+
+  if (result.ok && !result.record.company) {
+    result.record.company = await resolveUnknownCompanyPlaceholder();
+  }
+
+  return {
+    result,
+    folderStatus: result.ok ? await getProjectFolderStatus() : null,
+    priorCompany: result.ok ? await findPriorCompanyWarning(result.record) : null
+  };
+}
+
+async function runCapturePage() {
+  clearResult();
+  elements.captureButton.disabled = true;
+  elements.capturePageButton.disabled = true;
+  setStatus('capturing', 'Capturing', 'Reading the active tab.');
+
+  try {
+    applyCaptureResult(await captureGenericPageWithChecks());
+  } catch (error) {
+    setStatus('error', 'Capture Failed', error.message || String(error));
+  } finally {
+    elements.captureButton.disabled = false;
+    elements.capturePageButton.disabled = false;
   }
 }
 async function runSave() {
@@ -342,6 +399,7 @@ async function runSave() {
   elements.saveButton.disabled = true;
   elements.recordListingButton.disabled = true;
   elements.captureButton.disabled = true;
+  elements.capturePageButton.disabled = true;
   setStatus('capturing', 'Saving', 'Writing JSON listing and CSV tracking row.');
 
   try {
@@ -361,6 +419,7 @@ async function runSave() {
     setStatus('error', 'Save Failed', `${message}${suffix}`);
   } finally {
     elements.captureButton.disabled = false;
+    elements.capturePageButton.disabled = false;
     updateSaveButtons();
   }
 }
@@ -375,6 +434,7 @@ async function runRecordListing() {
   elements.saveButton.disabled = true;
   elements.recordListingButton.disabled = true;
   elements.captureButton.disabled = true;
+  elements.capturePageButton.disabled = true;
   setStatus('capturing', 'Recording Listing', `Writing CSV row to ${OTHER_LISTINGS_CSV_FILENAME}.`);
 
   try {
@@ -389,6 +449,7 @@ async function runRecordListing() {
     setStatus('error', 'Record Failed', `${message}${suffix}`);
   } finally {
     elements.captureButton.disabled = false;
+    elements.capturePageButton.disabled = false;
     updateSaveButtons();
   }
 }
@@ -556,6 +617,7 @@ async function consumeAutoCaptureIntent() {
 }
 
 elements.captureButton.addEventListener('click', runCapture);
+elements.capturePageButton.addEventListener('click', runCapturePage);
 elements.saveButton.addEventListener('click', runSave);
 elements.recordListingButton.addEventListener('click', runRecordListing);
 elements.optionsButton.addEventListener('click', openOptions);

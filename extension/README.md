@@ -27,6 +27,7 @@ Implemented in the current shell:
 - popup "Next Page" action that advances the active LinkedIn results tab by 25 results in place, working identically on generic and premium search surfaces, with the button label showing the destination results number (e.g. `Next Page (results 25+)`); it also updates the most recent `search-tracking.csv` row's `postsSeen` to that same destination results number, best-effort and non-blocking
 - Recent Postings scans update a durable per-search running total in search-tracking.csv; rescanning replaces the current page count, while "Next Page" commits that count before starting the next page at zero
 - persistent `host_permissions` grant for `https://www.linkedin.com/*`, so script injection works immediately after the extension's own "Open Job Search" / "Open Premium Job Search" / "Next Page" navigations without requiring the popup to be closed and reopened
+- DevCycle030's "Capture Page" button, for job listings on arbitrary (non-LinkedIn) career pages — see "Capture Page (Non-LinkedIn Listings)" below
 
 It does not implement the final editable review UI. The Save action writes the current captured parser result; DevCycle006 will add richer field editing before save.
 
@@ -150,6 +151,16 @@ The Recent Postings header has a small refresh button next to the count badge. C
 The CSV's recentPostings value is a running total across result pages. Rescanning the same page replaces that page's count instead of adding it again. "Next Page" commits the current page count into the prior-pages subtotal, resets the current page to zero, and then navigation continues. The accounting state is retained in chrome.storage.session, including the LinkedIn start value, so closing and reopening the popup does not double-count the current page. Each row update also refreshes freshness from the current Options setting.
 
 `updateLastSearchTrackingRow` never calls `requestPermission()`: it only checks whether readwrite permission is already granted and silently skips the CSV write otherwise, because these updates run from the automatic popup-open scan and other paths without a fresh user gesture, and the File System Access API throws a `DOMException` if `requestPermission()` is called without one. A skipped update is not lost — the in-memory/session running total is still correct, and the next update that runs while permission is granted persists the current total.
+
+## Capture Page (Non-LinkedIn Listings)
+
+The **Capture Page** button, directly below **Capture Active Tab**, captures a job listing from any page — not just LinkedIn. It injects `captureGenericPage()` (`extension/content/captureActivePage.js`), which never gates on being "supported": it always returns a result and does its best with generic signals (the `<title>` element, a "Label" line immediately followed by a "Value" line for sidebar-style metadata such as `Company` / `Office location` / `Employment type`, and a `$X - $Y` salary pattern found anywhere in the body text). It was built and hand-verified against `doc/examples/Stripe Careers _ Software Engineer, Product Security Data Platforms.mhtml`.
+
+Every field it can't confidently resolve is set to the literal string `UNKNOWN` rather than left blank — expect that to be the common case for most fields beyond `company`/`title`/`description` on many pages, since generic parsing is inherently far less reliable than the LinkedIn-specific parser. `applyType` is always `DIRECT`.
+
+`company` is a special case. If it can't be resolved, the content script leaves it as an empty string, and the popup fills in a numbered placeholder, `NNNU_UNKNOWN` (e.g. `001U_UNKNOWN`), by calling `getNextUnknownCompanyPlaceholder()` (`extension/shared/saveListing.js`), which reads `job-tracking.csv`'s `company` column and returns one past the highest existing `NNNU_` prefix — matching on that prefix alone, never on a trailing `UNKNOWN`, so a placeholder the user has since manually renamed to `NNNU_COMPANYNAME` still counts toward the next number. Since `company` is also the leading segment of the saved-listing filename, the placeholder becomes the start of the `.json`/`.txt`/`.md` filenames too, letting the user find and rename the right listing later.
+
+Saving a "Capture Page" result uses the same "Save Capture" pipeline as a LinkedIn capture: JSON + `.txt` + `.md` files in `saved-listings/`, plus a row appended to `job-tracking.csv` — not the CSV-only `other-listings.csv` path used by "Record Listing".
 
 ## Permissions
 

@@ -5,7 +5,9 @@ import {
   escapeCsvField,
   findOldTrackingCompany,
   findPriorCompanyCaptures,
+  formatUnknownCompanyPlaceholder,
   LEGACY_SEARCH_CSV_HEADER_LINE,
+  nextUnknownCompanyNumber,
   normalizeCompanyForMatch,
   parseCsvRows,
   parseOldTrackingCompanies,
@@ -33,6 +35,7 @@ import { ensureProjectReadPermission } from '../shared/projectFolderStore.js';
 import {
   appendCaptureRecordToCsv,
   appendSearchTrackingRow,
+  getNextUnknownCompanyPlaceholder,
   OTHER_LISTINGS_CSV_FILENAME,
   reserveListingFilename,
   saveCaptureRecord,
@@ -146,6 +149,22 @@ function runCsvTests() {
   assert(oldTrackingSummary.count === 1, `Expected Uber to match old-tracking company, got ${oldTrackingSummary.count}.`);
   assert(findOldTrackingCompany(oldTrackingText, 'Snap').count === 1, 'Expected old-tracking matching to be case-insensitive.');
   assert(findOldTrackingCompany(oldTrackingText, 'Unknown').count === 0, 'Expected unknown old-tracking company not to match.');
+
+  assert(nextUnknownCompanyNumber('') === 1, 'Expected next unknown-company number to be 1 for empty CSV text.');
+  assert(nextUnknownCompanyNumber(CSV_HEADER_TEXT) === 1, 'Expected next unknown-company number to be 1 for a header-only CSV.');
+  const placeholderCsvText = CSV_HEADER_TEXT
+    + serializeRecordCsvRow(sampleRecord({ company: '001U_UNKNOWN', captureDateLocal: '2026-07-01' }))
+    + serializeRecordCsvRow(sampleRecord({ company: '003U_UNKNOWN', captureDateLocal: '2026-07-02' }))
+    + serializeRecordCsvRow(sampleRecord({ company: '002U_Acme', captureDateLocal: '2026-07-03' }))
+    + serializeRecordCsvRow(sampleRecord({ company: '500U Logistics', captureDateLocal: '2026-07-04' }))
+    + serializeRecordCsvRow(sampleRecord({ company: '12U_UNKNOWN', captureDateLocal: '2026-07-05' }))
+    + serializeRecordCsvRow(sampleRecord({ company: '1234U_UNKNOWN', captureDateLocal: '2026-07-06' }));
+  assert(
+    nextUnknownCompanyNumber(placeholderCsvText) === 4,
+    `Expected next unknown-company number to be 4 (past 003U_, counting the renamed 002U_Acme row, ignoring non-3-digit near-misses), got ${nextUnknownCompanyNumber(placeholderCsvText)}.`
+  );
+  assert(formatUnknownCompanyPlaceholder(9) === '009U_UNKNOWN', 'Expected single-digit placeholder numbers to be zero-padded to 3 digits.');
+  assert(formatUnknownCompanyPlaceholder(142) === '142U_UNKNOWN', 'Expected 3-digit placeholder numbers to pass through unpadded.');
 }
 
 function runFilenameTests() {
@@ -341,6 +360,39 @@ async function runAppendCaptureRecordToCsvTest() {
   const csvText = await projectHandle.rootFiles.get(OTHER_LISTINGS_CSV_FILENAME).text();
   assert(csvText.startsWith(CSV_HEADER_TEXT), 'Expected other-listings.csv to start with the standard CSV header.');
   assert(csvText.includes('Starbucks, Inc.'), 'Expected other-listings.csv to include the captured record row.');
+}
+
+async function runGetNextUnknownCompanyPlaceholderTest() {
+  const projectHandle = fakeProjectHandle();
+  setStoredProjectHandle(projectHandle);
+
+  const firstPlaceholder = await getNextUnknownCompanyPlaceholder();
+  assert(firstPlaceholder === '001U_UNKNOWN', `Expected first placeholder to be 001U_UNKNOWN with no job-tracking.csv yet, got ${firstPlaceholder}.`);
+
+  const seededCsvText = CSV_HEADER_TEXT
+    + serializeRecordCsvRow(sampleRecord({ company: '001U_UNKNOWN', captureDateLocal: '2026-07-01' }))
+    + serializeRecordCsvRow(sampleRecord({ company: '004U_Acme', captureDateLocal: '2026-07-02' }));
+  projectHandle.rootFiles.set('job-tracking.csv', fakeWritableFile(seededCsvText));
+
+  const nextPlaceholder = await getNextUnknownCompanyPlaceholder();
+  assert(nextPlaceholder === '005U_UNKNOWN', `Expected placeholder to continue past a renamed 004U_ row, got ${nextPlaceholder}.`);
+
+  // DevCycle030's DIRECT/UNKNOWN record shape must round-trip through the
+  // ordinary save pipeline with no special-casing.
+  const directRecord = sampleRecord({
+    sourceWebsite: 'Generic',
+    company: nextPlaceholder,
+    applyType: 'DIRECT',
+    linkedinJobId: 'UNKNOWN',
+    workplaceType: 'UNKNOWN',
+    postedText: 'UNKNOWN',
+    applicantCountText: 'UNKNOWN'
+  });
+  const saveResult = await saveCaptureRecord(directRecord);
+  assert(saveResult.ok === true && saveResult.partial === false, `Expected a DIRECT/UNKNOWN record to save cleanly, got ${JSON.stringify(saveResult)}.`);
+  assert(saveResult.savedListingPath.startsWith('saved-listings/005u-unknown_'), `Expected the saved filename to start with the company placeholder, got ${saveResult.savedListingPath}.`);
+  const savedCsvText = await projectHandle.rootFiles.get('job-tracking.csv').text();
+  assert(savedCsvText.includes('005U_UNKNOWN') && savedCsvText.includes('DIRECT') && savedCsvText.includes('UNKNOWN'), 'Expected job-tracking.csv to record the placeholder company and DIRECT/UNKNOWN fields.');
 }
 
 async function runAppendSearchTrackingRowTest() {
@@ -604,6 +656,7 @@ await runReservationTests();
 await runProjectPermissionTests();
 await runSaveCaptureRecordTest();
 await runAppendCaptureRecordToCsvTest();
+await runGetNextUnknownCompanyPlaceholderTest();
 await runAppendSearchTrackingRowTest();
 await runUpdateLastSearchTrackingRowPostsSeenTest();
 await runUpdateLastSearchTrackingRowSkipsWithoutPromptTest();
