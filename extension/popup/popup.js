@@ -43,6 +43,7 @@ const elements = {
   refreshRecentPostingsButton: document.querySelector('#refreshRecentPostingsButton'),
   recentPostingsPanel: document.querySelector('#recentPostingsPanel'),
   recentPostingsCount: document.querySelector('#recentPostingsCount'),
+  recentPostingsAgeLabel: document.querySelector('#recentPostingsAgeLabel'),
   recentPostingsMessage: document.querySelector('#recentPostingsMessage'),
   recentPostingsList: document.querySelector('#recentPostingsList'),
   statusPanel: document.querySelector('#statusPanel'),
@@ -145,6 +146,7 @@ async function scanRecentPostings() {
   try {
     const ageValue = await loadRecentPostingsAgeSetting();
     const ageConfig = getRecentPostingsAgeConfig(ageValue);
+    elements.recentPostingsAgeLabel.textContent = ageConfig.shortLabel;
     const tab = await getActiveTab();
     updateNextPageButtonLabel(tab);
     const [injectionResult] = await chrome.scripting.executeScript({

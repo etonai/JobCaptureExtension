@@ -589,10 +589,13 @@ async function runRecentPostingsSettingsTests() {
 
   const twoHours = getRecentPostingsAgeConfig(RECENT_POSTINGS_AGE_VALUES.TWO_HOURS_OR_LESS);
   assert(twoHours.maxAgeMinutes === 120 && twoHours.inclusive === true, 'Expected 2-hours-or-less to be 120 minutes inclusive.');
+  assert(twoHours.shortLabel === '<= 2hr', 'Expected 2-hours-or-less short label to be "<= 2hr".');
   const oneHour = getRecentPostingsAgeConfig(RECENT_POSTINGS_AGE_VALUES.ONE_HOUR_OR_LESS);
   assert(oneHour.maxAgeMinutes === 60 && oneHour.inclusive === true, 'Expected 1-hour-or-less to be 60 minutes inclusive.');
+  assert(oneHour.shortLabel === '<= 1hr', 'Expected 1-hour-or-less short label to be "<= 1hr".');
   const lessThanOneHour = getRecentPostingsAgeConfig(RECENT_POSTINGS_AGE_VALUES.LESS_THAN_ONE_HOUR);
   assert(lessThanOneHour.maxAgeMinutes === 60 && lessThanOneHour.inclusive === false, 'Expected less-than-1-hour to be 60 minutes exclusive.');
+  assert(lessThanOneHour.shortLabel === '< 1hr', 'Expected less-than-1-hour short label to be "< 1hr".');
   assert(getRecentPostingsAgeConfig('unknownValue').value === DEFAULT_RECENT_POSTINGS_AGE, 'Expected unrecognized config lookup to default to 2-hours-or-less.');
 
   delete globalThis.chrome;

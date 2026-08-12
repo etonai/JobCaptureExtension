@@ -153,6 +153,12 @@ h2 {
   font-size: 14px;
 }
 
+.recent-postings-age-label {
+  font-weight: 400;
+  font-size: 11px;
+  color: #52677a;
+}
+
 .recent-postings-header-controls {
   display: flex;
   align-items: center;

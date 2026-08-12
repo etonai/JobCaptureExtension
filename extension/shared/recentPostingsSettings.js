@@ -12,6 +12,7 @@ const RECENT_POSTINGS_AGE_CONFIGS = Object.freeze({
   [RECENT_POSTINGS_AGE_VALUES.TWO_HOURS_OR_LESS]: {
     value: RECENT_POSTINGS_AGE_VALUES.TWO_HOURS_OR_LESS,
     label: '2 hours or less',
+    shortLabel: '<= 2hr',
     maxAgeMinutes: 120,
     inclusive: true,
     emptyStateText: 'No visible postings from the last two hours.'
@@ -19,6 +20,7 @@ const RECENT_POSTINGS_AGE_CONFIGS = Object.freeze({
   [RECENT_POSTINGS_AGE_VALUES.ONE_HOUR_OR_LESS]: {
     value: RECENT_POSTINGS_AGE_VALUES.ONE_HOUR_OR_LESS,
     label: '1 hour or less',
+    shortLabel: '<= 1hr',
     maxAgeMinutes: 60,
     inclusive: true,
     emptyStateText: 'No visible postings from the last hour.'
@@ -26,6 +28,7 @@ const RECENT_POSTINGS_AGE_CONFIGS = Object.freeze({
   [RECENT_POSTINGS_AGE_VALUES.LESS_THAN_ONE_HOUR]: {
     value: RECENT_POSTINGS_AGE_VALUES.LESS_THAN_ONE_HOUR,
     label: 'Less than 1 hour',
+    shortLabel: '< 1hr',
     maxAgeMinutes: 60,
     inclusive: false,
     emptyStateText: 'No visible postings from less than an hour ago.'

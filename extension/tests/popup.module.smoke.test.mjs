@@ -97,4 +97,10 @@ for (const selector of buttonSelectors) {
 }
 
 await new Promise((resolve) => setTimeout(resolve, 0));
+
+assert(
+  elements.get('#recentPostingsAgeLabel')?.textContent === '<= 2hr',
+  'Expected #recentPostingsAgeLabel to be populated with the default age filter short label.'
+);
+
 console.log('popup module smoke test passed');
