@@ -39,6 +39,9 @@ globalThis.document = {
   }
 };
 
+let scanResult = { ok: false, message: 'Popup smoke test scan.' };
+let lastSessionState = null;
+
 globalThis.chrome = {
   runtime: {
     onMessage: { addListener() {} },
@@ -55,7 +58,7 @@ globalThis.chrome = {
   },
   scripting: {
     async executeScript() {
-      return [{ result: { ok: false, message: 'Popup smoke test scan.' } }];
+      return [{ result: scanResult }];
     }
   },
   storage: {
@@ -69,7 +72,9 @@ globalThis.chrome = {
       async get() {
         return {};
       },
-      async set() {},
+      async set(value) {
+        lastSessionState = value.recentPostingsTracking;
+      },
       async remove() {}
     }
   }
@@ -101,6 +106,26 @@ await new Promise((resolve) => setTimeout(resolve, 0));
 assert(
   elements.get('#recentPostingsAgeLabel')?.textContent === '<= 2hr',
   'Expected #recentPostingsAgeLabel to be populated with the default age filter short label.'
+);
+
+scanResult = {
+  ok: true,
+  listings: [
+    { company: 'Acme', postedText: '5 minutes ago', companySource: 'list-card', listPosition: 1 },
+    { company: '', postedText: '10 minutes ago', companySource: 'missing', listPosition: 2 },
+    { company: 'Beta', postedText: '15 minutes ago', companySource: 'list-card', listPosition: 3 }
+  ]
+};
+elements.get('#refreshRecentPostingsButton').listeners.get('click')();
+await new Promise((resolve) => setTimeout(resolve, 0));
+
+assert(
+  lastSessionState?.currentPageTotal === 2,
+  `Expected the running-total scan to count only company-known listings (2), got ${lastSessionState?.currentPageTotal}.`
+);
+assert(
+  elements.get('#recentPostingsCount')?.textContent === '3',
+  'Expected the displayed Recent Postings count to still include the Unknown-company listing.'
 );
 
 console.log('popup module smoke test passed');

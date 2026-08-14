@@ -152,6 +152,8 @@ The Recent Postings header has a small refresh button next to the count badge. C
 
 The CSV's recentPostings value is a running total across result pages. Rescanning the same page replaces that page's count instead of adding it again. "Next Page" commits the current page count into the prior-pages subtotal, resets the current page to zero, and then navigation continues. The accounting state is retained in chrome.storage.session, including the LinkedIn start value, so closing and reopening the popup does not double-count the current page. Each row update also refreshes freshness from the current Options setting.
 
+Listings with an unresolved company (`companySource: 'missing'`, shown in the popup list as "Unknown company") are excluded from the recentPostings count — every Unknown-company listing observed so far has turned out to be a capture bug rather than a real posting, so it should not inflate the running total. These listings still appear in the popup's Recent Postings list and count toward the displayed "N recent postings found" number; only the CSV running total excludes them.
+
 `updateLastSearchTrackingRow` never calls `requestPermission()`: it only checks whether readwrite permission is already granted and silently skips the CSV write otherwise, because these updates run from the automatic popup-open scan and other paths without a fresh user gesture, and the File System Access API throws a `DOMException` if `requestPermission()` is called without one. A skipped update is not lost — the in-memory/session running total is still correct, and the next update that runs while permission is granted persists the current total.
 
 ## Capture Page (Non-LinkedIn Listings)

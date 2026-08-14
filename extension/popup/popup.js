@@ -166,8 +166,9 @@ async function scanRecentPostings() {
       console.debug('[recent-postings-debug]', result.debug);
     }
     const listings = Array.isArray(result.listings) ? result.listings : [];
+    const knownCompanyCount = listings.filter((listing) => listing.companySource !== 'missing').length;
     try {
-      await trackRecentPostingsScan(tab.url, listings.length);
+      await trackRecentPostingsScan(tab.url, knownCompanyCount);
     } catch (error) {
       console.warn(`Failed to update search-tracking.csv Recent Postings: ${error?.name || 'Error'}: ${error?.message || String(error)}`);
     }
