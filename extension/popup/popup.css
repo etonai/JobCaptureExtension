@@ -141,6 +141,22 @@ h2 {
   margin-bottom: 10px;
 }
 
+.exact-match-warning {
+  margin-bottom: 10px;
+  border: 1px solid #d69e2e;
+  border-left: 4px solid #b7791f;
+  border-radius: 8px;
+  background: #fffbeb;
+  padding: 10px 12px;
+  color: #744210;
+}
+
+.exact-match-warning p {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 .recent-postings-header {
   display: flex;
   align-items: center;

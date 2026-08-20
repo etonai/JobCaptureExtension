@@ -20,9 +20,12 @@ export const CSV_BOM = '\uFEFF';
 export const CSV_HEADER_LINE = CSV_COLUMNS.join(',');
 export const CSV_HEADER_TEXT = `${CSV_BOM}${CSV_HEADER_LINE}\r\n`;
 
-export const SEARCH_CSV_COLUMNS = ['timestamp', 'searchType', 'postsSeen', 'recentPostings', 'freshness'];
+export const SEARCH_CSV_COLUMNS = ['timestamp', 'searchType', 'postsSeen', 'recentPostings', 'freshness', 'exactMatches'];
 export const SEARCH_CSV_HEADER_LINE = SEARCH_CSV_COLUMNS.join(',');
 export const SEARCH_CSV_HEADER_TEXT = `${CSV_BOM}${SEARCH_CSV_HEADER_LINE}\r\n`;
+
+export const FIVE_COLUMN_SEARCH_CSV_COLUMNS = ['timestamp', 'searchType', 'postsSeen', 'recentPostings', 'freshness'];
+export const FIVE_COLUMN_SEARCH_CSV_HEADER_LINE = FIVE_COLUMN_SEARCH_CSV_COLUMNS.join(',');
 
 export const PREVIOUS_SEARCH_CSV_COLUMNS = ['timestamp', 'searchType', 'postsSeen'];
 export const PREVIOUS_SEARCH_CSV_HEADER_LINE = PREVIOUS_SEARCH_CSV_COLUMNS.join(',');
@@ -79,13 +82,14 @@ export function serializeRecordCsvRow(record) {
   return serializeCsvRow(recordToCsvValues(record));
 }
 
-export function serializeSearchTrackingRow({ timestamp, searchType, postsSeen, recentPostings, freshness }) {
+export function serializeSearchTrackingRow({ timestamp, searchType, postsSeen, recentPostings, freshness, exactMatches }) {
   return serializeCsvRow([
     timestamp || '',
     searchType || '',
     postsSeen == null ? '' : String(postsSeen),
     recentPostings == null ? '' : String(recentPostings),
-    freshness || ''
+    freshness || '',
+    exactMatches == null ? '' : String(exactMatches)
   ]);
 }
 export function parseCsvRows(text) {
@@ -231,4 +235,3 @@ export function findOldTrackingCompany(oldTrackingText, company) {
     ? { count: 1, company: match }
     : { count: 0, company: '' };
 }
-

@@ -39,8 +39,77 @@ globalThis.document = {
   }
 };
 
+function fakeWritableFile(initialText = '') {
+  let text = initialText;
+  return {
+    async getFile() {
+      return { size: text.length, async text() { return text; } };
+    },
+    async createWritable({ keepExistingData = false } = {}) {
+      let draft = keepExistingData ? text : '';
+      let position = 0;
+      return {
+        async seek(nextPosition) { position = nextPosition; },
+        async write(value) {
+          const input = String(value);
+          draft = draft.slice(0, position) + input + draft.slice(position + input.length);
+          position += input.length;
+        },
+        async close() { text = draft; }
+      };
+    }
+  };
+}
+
+const projectFiles = new Map();
+const projectHandle = {
+  async queryPermission() { return 'granted'; },
+  async requestPermission() { return 'granted'; },
+  async getFileHandle(name, { create = false } = {}) {
+    if (!projectFiles.has(name)) {
+      if (!create) throw Object.assign(new Error('Not found'), { name: 'NotFoundError' });
+      projectFiles.set(name, fakeWritableFile());
+    }
+    return projectFiles.get(name);
+  }
+};
+
+globalThis.indexedDB = {
+  open() {
+    const request = {};
+    setTimeout(() => {
+      request.result = {
+        objectStoreNames: { contains() { return true; } },
+        transaction() {
+          return {
+            objectStore() {
+              return {
+                get() {
+                  const getRequest = {};
+                  setTimeout(() => {
+                    getRequest.result = projectHandle;
+                    getRequest.onsuccess?.();
+                  }, 0);
+                  return getRequest;
+                }
+              };
+            }
+          };
+        },
+        close() {}
+      };
+      request.onsuccess?.();
+    }, 0);
+    return request;
+  }
+};
+
 let scanResult = { ok: false, message: 'Popup smoke test scan.' };
 let lastSessionState = null;
+let activeTab = {
+  id: 1,
+  url: 'https://www.linkedin.com/jobs/search-results/?keywords=Software+Engineer&geoId=90000091'
+};
 
 globalThis.chrome = {
   runtime: {
@@ -49,12 +118,9 @@ globalThis.chrome = {
   },
   tabs: {
     async query() {
-      return [{
-        id: 1,
-        url: 'https://www.linkedin.com/jobs/search-results/?keywords=Software+Engineer&geoId=90000091'
-      }];
+      return [activeTab];
     },
-    async update() {}
+    async update(id, values) { activeTab = { ...activeTab, ...values }; }
   },
   scripting: {
     async executeScript() {
@@ -69,8 +135,8 @@ globalThis.chrome = {
       async set() {}
     },
     session: {
-      async get() {
-        return {};
+      async get(key) {
+        return { [key]: key === 'recentPostingsTracking' ? lastSessionState : undefined };
       },
       async set(value) {
         lastSessionState = value.recentPostingsTracking;
@@ -108,16 +174,19 @@ assert(
   'Expected #recentPostingsAgeLabel to be populated with the default age filter short label.'
 );
 
+await elements.get('#openJobSearchButton').listeners.get('click')();
+
 scanResult = {
   ok: true,
+  cardCount: 3,
+  exactMatchBoundary: { detected: true, exactMatchesOnPage: 2 },
   listings: [
     { company: 'Acme', postedText: '5 minutes ago', companySource: 'list-card', listPosition: 1 },
     { company: '', postedText: '10 minutes ago', companySource: 'missing', listPosition: 2 },
     { company: 'Beta', postedText: '15 minutes ago', companySource: 'list-card', listPosition: 3 }
   ]
 };
-elements.get('#refreshRecentPostingsButton').listeners.get('click')();
-await new Promise((resolve) => setTimeout(resolve, 0));
+await elements.get('#refreshRecentPostingsButton').listeners.get('click')();
 
 assert(
   lastSessionState?.currentPageTotal === 2,
@@ -127,5 +196,27 @@ assert(
   elements.get('#recentPostingsCount')?.textContent === '3',
   'Expected the displayed Recent Postings count to still include the Unknown-company listing.'
 );
+assert(lastSessionState?.exactMatches === 2, `Expected the first-page boundary to persist 2 exact matches, got ${lastSessionState?.exactMatches}.`);
+assert(
+  elements.get('#exactMatchWarningMessage')?.textContent.includes('after 2 exact matches'),
+  'Expected the popup to notify the user with the detected exact-match count.'
+);
+
+const searchCsv = projectFiles.get('search-tracking.csv');
+const refreshedCsvText = await (await searchCsv.getFile()).text();
+assert(refreshedCsvText.includes(',2 hours or less,2'), 'Expected manual Refresh to persist the exact-match count in search-tracking.csv.');
+
+await elements.get('#openJobSearchButton').listeners.get('click')();
+let triggeredCsvText = await (await searchCsv.getFile()).text();
+assert(triggeredCsvText.includes('Open Job Search,25,0,2 hours or less,UNKNOWN'), 'Expected Open Job Search to append a six-column tracking row.');
+
+await elements.get('#openPremiumJobSearchButton').listeners.get('click')();
+triggeredCsvText = await (await searchCsv.getFile()).text();
+assert(triggeredCsvText.includes('Open Premium Job Search,25,0,2 hours or less,UNKNOWN'), 'Expected Open Premium Job Search to append a six-column tracking row.');
+
+await elements.get('#nextPageButton').listeners.get('click')();
+await elements.get('#nextPageButton').listeners.get('click')();
+triggeredCsvText = await (await searchCsv.getFile()).text();
+assert(triggeredCsvText.includes('Open Premium Job Search,50,0,2 hours or less,UNKNOWN'), 'Expected Next Page to update the last row with the next postsSeen value while preserving exactMatches.');
 
 console.log('popup module smoke test passed');

@@ -843,6 +843,35 @@ export function captureRecentJobPostings(ageFilter) {
     return listings;
   }
 
+  const exactMatchBoundaryMessage = 'We found more results related to your search that may not be exact matches, but could still be a great fit.';
+
+  function detectExactMatchBoundary(doc) {
+    if (typeof doc?.querySelectorAll !== 'function') {
+      return { detected: false, exactMatchesOnPage: null };
+    }
+    const dismissTitles = dismissButtonTitles(doc);
+    const titleParagraphs = paragraphElements(doc)
+      .filter((paragraph) => isCardTitleParagraph(paragraph, dismissTitles));
+    const candidates = Array.from(doc.querySelectorAll('p, div, span, h2, h3'))
+      .filter((element) => normalizeLine(element?.innerText || element?.textContent || '') === exactMatchBoundaryMessage);
+
+    for (const candidate of candidates) {
+      let container = candidate.parentElement || null;
+      while (container && container !== doc.body && tagNameOf(container) !== 'body' && tagNameOf(container) !== 'html') {
+        const scopedTitles = titleParagraphs.filter((title) => typeof container.contains === 'function' && container.contains(title));
+        if (scopedTitles.length > 0) {
+          const exactMatchesOnPage = scopedTitles.filter((title) => (
+            typeof title.compareDocumentPosition === 'function'
+            && (title.compareDocumentPosition(candidate) & 4) !== 0
+          )).length;
+          return { detected: true, exactMatchesOnPage };
+        }
+        container = container.parentElement || null;
+      }
+    }
+    return { detected: false, exactMatchesOnPage: null };
+  }
+
   function isLikelyMetadataLine(line) {
     return /(?:·|Â·|[|])/.test(line) && /ago|yesterday|applicant|clicked apply|reposted|posted/i.test(line);
   }
@@ -1010,6 +1039,7 @@ export function captureRecentJobPostings(ageFilter) {
   const debugDismissTitles = dismissButtonTitles(document);
   const debugTitleParagraphs = paragraphElements(document)
     .filter((paragraph) => isCardTitleParagraph(paragraph, debugDismissTitles));
+  const exactMatchBoundary = detectExactMatchBoundary(document);
   const debug = {
     dismissTitleCount: debugDismissTitles.size,
     titleParagraphCount: debugTitleParagraphs.length,
@@ -1033,6 +1063,8 @@ export function captureRecentJobPostings(ageFilter) {
     url,
     pageTitle,
     listings,
+    cardCount: debugTitleParagraphs.length,
+    exactMatchBoundary,
     debug
   };
 }

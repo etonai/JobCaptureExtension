@@ -37,6 +37,10 @@ function elementNode(tagName, attrs = {}, children = []) {
       if (child?.nodeType === 1) child.parentElement = this;
       return child;
     },
+    contains(candidate) {
+      if (candidate === this) return true;
+      return this.childNodes.some((child) => child === candidate || (child?.nodeType === 1 && typeof child.contains === 'function' && child.contains(candidate)));
+    },
     querySelectorAll(selector) {
       const matches = [];
       const stack = [...this.childNodes];
@@ -100,7 +104,7 @@ function linkedInAboutJobDom(children) {
   const container = elementNode('div', { componentkey: 'JobDetails_AboutTheJob_123' }, [heading, description]);
   return { heading, container };
 }
-function setMockPage({ href, hostname, pathname, title, bodyText, headings = [], domHeadings = [], paragraphNodes = [], buttonNodes = [], domRoots = [] }) {
+function setMockPage({ href, hostname, pathname, title, bodyText, headings = [], domHeadings = [], paragraphNodes = [], buttonNodes = [], domRoots = [], boundaryNodes = [] }) {
   globalThis.window = {
     location: { href, hostname, pathname }
   };
@@ -133,6 +137,9 @@ function setMockPage({ href, hostname, pathname, title, bodyText, headings = [],
           const matches = root.querySelectorAll(selector);
           return Object.hasOwn(root.attrs, 'data-job-capture-recent') ? [root, ...matches] : matches;
         });
+      }
+      if (selector === 'p, div, span, h2, h3') {
+        return boundaryNodes;
       }
       return [];
     }
@@ -410,6 +417,44 @@ function runRecentPostingsListCardStructureTest() {
   assert(!result.listings.some((l) => l.company === 'Denver, CO'), 'Expected a location never to be used as a company.');
   assert(!result.listings.some((l) => l.company === 'OldCo'), 'Expected the 3-hour-old card to be excluded by age.');
   assert(!result.listings.some((l) => l.company === 'NoAgeCo'), 'Expected a card with no posting age to be excluded.');
+}
+
+function runExactMatchBoundaryDetectionTest() {
+  const firstTitle = titleParagraph('First Engineer');
+  const secondTitle = titleParagraph('Related Engineer');
+  const message = elementNode('div', {}, [textNode('  We found more results related to your search that may not be exact matches, but could still be a great fit.  ')]);
+  const listContainer = elementNode('div', {}, [firstTitle, message, secondTitle]);
+  firstTitle.compareDocumentPosition = (candidate) => candidate === message ? 4 : 0;
+  secondTitle.compareDocumentPosition = () => 0;
+
+  setMockPage({
+    href: 'https://www.linkedin.com/jobs/search-results/?keywords=engineer',
+    hostname: 'www.linkedin.com',
+    pathname: '/jobs/search-results/',
+    title: 'Engineer Jobs | LinkedIn',
+    bodyText: listContainer.innerText,
+    paragraphNodes: [firstTitle, secondTitle],
+    boundaryNodes: [message]
+  });
+
+  const result = captureRecentJobPostings();
+  assert(result.cardCount === 2, `Expected all two cards to be counted independent of age, got ${result.cardCount}.`);
+  assert(result.exactMatchBoundary.detected === true, 'Expected the exact-match boundary message to be detected in the results container.');
+  assert(result.exactMatchBoundary.exactMatchesOnPage === 1, `Expected one card before the boundary, got ${result.exactMatchBoundary.exactMatchesOnPage}.`);
+
+  const unrelatedContainer = elementNode('aside', {}, [message]);
+  void unrelatedContainer;
+  setMockPage({
+    href: 'https://www.linkedin.com/jobs/search-results/?keywords=engineer',
+    hostname: 'www.linkedin.com',
+    pathname: '/jobs/search-results/',
+    title: 'Engineer Jobs | LinkedIn',
+    bodyText: message.innerText,
+    paragraphNodes: [firstTitle, secondTitle],
+    boundaryNodes: [message]
+  });
+  const unrelatedResult = captureRecentJobPostings();
+  assert(unrelatedResult.exactMatchBoundary.detected === false, 'Expected matching text outside a card-owning results container to be ignored.');
 }
 
 function runRecentPostingsDetailPaneKeepsCardPositionTest() {
@@ -982,6 +1027,7 @@ runSalaryAbsentDoesNotUseUnrelatedHeaderSalaryTest();
 runMarkdownDescriptionDomTest();
 runUnsupportedPageTest();
 runRecentPostingsListCardStructureTest();
+runExactMatchBoundaryDetectionTest();
 runRecentPostingsDetailPaneKeepsCardPositionTest();
 runRecentPostingsDocusignFixtureTest();
 runRecentPostingsStarbucksFixtureTest();

@@ -1,5 +1,5 @@
 import { captureActivePage, captureGenericPage, captureRecentJobPostings } from '../content/captureActivePage.js';
-import { ensureProjectReadPermission, getProjectFolderStatus, getStoredProjectFolder } from '../shared/projectFolderStore.js';
+import { ensureProjectPermission, ensureProjectReadPermission, getProjectFolderStatus, getStoredProjectFolder } from '../shared/projectFolderStore.js';
 import { findCachedPriorCompanyWarning, findPriorCompanyInCache, refreshPriorCompanyCache } from '../shared/priorCompanyCache.js';
 import { formatUnknownCompanyPlaceholder } from '../shared/csv.js';
 import {
@@ -21,6 +21,7 @@ import {
   normalizeRecentPostingsTrackingState,
   RECENT_POSTINGS_TRACKING_SESSION_KEY,
   recentPostingsRunningTotal,
+  recordExactMatchBoundaryScan,
   recordRecentPostingsScan
 } from '../shared/recentPostingsTracking.js';
 
@@ -46,6 +47,8 @@ const elements = {
   recentPostingsAgeLabel: document.querySelector('#recentPostingsAgeLabel'),
   recentPostingsMessage: document.querySelector('#recentPostingsMessage'),
   recentPostingsList: document.querySelector('#recentPostingsList'),
+  exactMatchWarning: document.querySelector('#exactMatchWarning'),
+  exactMatchWarningMessage: document.querySelector('#exactMatchWarningMessage'),
   statusPanel: document.querySelector('#statusPanel'),
   statusTitle: document.querySelector('#statusTitle'),
   statusMessage: document.querySelector('#statusMessage'),
@@ -118,23 +121,62 @@ async function saveRecentPostingsTrackingState(state) {
 
 async function resetRecentPostingsTrackingState(pageStart = 0) {
   await saveRecentPostingsTrackingState(normalizeRecentPostingsTrackingState(null, pageStart));
+  renderExactMatchWarning(null);
 }
 
-async function trackRecentPostingsScan(tabUrl, currentPageTotal) {
-  const pageStart = getCurrentStart(tabUrl);
-  const state = recordRecentPostingsScan(
-    await loadRecentPostingsTrackingState(pageStart),
-    pageStart,
-    currentPageTotal
-  );
-  await saveRecentPostingsTrackingState(state);
-  const result = await updateLastSearchTrackingRow({ recentPostings: recentPostingsRunningTotal(state) });
-  if (result?.skipped) {
-    console.debug('Skipped search-tracking.csv Recent Postings update:', result.reason);
+function searchTrackingErrorMessage(error) {
+  const message = error?.message || String(error);
+  const locked = /lock|in use|modification|writable|access.*denied|not allowed/i.test(`${error?.name || ''} ${message}`);
+  const closeFile = locked ? ' Close search-tracking.csv in Excel or any other program, then retry.' : '';
+  return `${message}${closeFile}`;
+}
+
+async function prepareSearchTrackingWrite() {
+  const projectHandle = await getStoredProjectFolder();
+  if (!projectHandle) {
+    throw new Error('Project folder is not configured. Open Options and choose a project folder before tracking searches.');
   }
+  await ensureProjectPermission(projectHandle);
 }
 
-async function scanRecentPostings() {
+function renderExactMatchWarning(state) {
+  const normalized = normalizeRecentPostingsTrackingState(state);
+  const detected = normalized.exactBoundaryDetected;
+  elements.exactMatchWarning.classList.toggle('hidden', !detected);
+  if (!detected) {
+    elements.exactMatchWarningMessage.textContent = '';
+    return;
+  }
+  elements.exactMatchWarningMessage.textContent = normalized.exactMatches === null
+    ? 'LinkedIn has started showing related results. The exact-match count could not be established confidently.'
+    : `LinkedIn has started showing related results after ${normalized.exactMatches} exact matches.`;
+}
+
+async function trackRecentPostingsScan(tabUrl, currentPageTotal, cardCount, boundary) {
+  const pageStart = getCurrentStart(tabUrl);
+  let state = await loadRecentPostingsTrackingState(pageStart);
+  const previousExactMatches = state.exactMatches;
+  state = recordExactMatchBoundaryScan(state, pageStart, cardCount, boundary);
+  state = recordRecentPostingsScan(state, pageStart, currentPageTotal);
+  await saveRecentPostingsTrackingState(state);
+  renderExactMatchWarning(state);
+  if (previousExactMatches !== null && boundary?.detected && Number.isInteger(boundary.exactMatchesOnPage)) {
+    const observed = state.previousPagesCardTotal + boundary.exactMatchesOnPage;
+    if (observed !== previousExactMatches) {
+      console.debug(`Ignored changed exact-match boundary count (${observed}); preserving first observation (${previousExactMatches}).`);
+    }
+  }
+  const result = await updateLastSearchTrackingRow({
+    recentPostings: recentPostingsRunningTotal(state),
+    exactMatches: state.exactMatches ?? undefined
+  });
+  if (result?.skipped) {
+    throw new Error(`search-tracking.csv update was skipped: ${result.reason}`);
+  }
+  return result;
+}
+
+async function scanRecentPostings(userInitiated = false) {
   if (recentPostingsScanInFlight) {
     return;
   }
@@ -144,11 +186,20 @@ async function scanRecentPostings() {
   setRecentPostingsState('loading', 'Scanning the active LinkedIn tab.');
 
   try {
+    let permissionError = null;
+    if (userInitiated) {
+      try {
+        await prepareSearchTrackingWrite();
+      } catch (error) {
+        permissionError = error;
+      }
+    }
     const ageValue = await loadRecentPostingsAgeSetting();
     const ageConfig = getRecentPostingsAgeConfig(ageValue);
     elements.recentPostingsAgeLabel.textContent = ageConfig.shortLabel;
     const tab = await getActiveTab();
     updateNextPageButtonLabel(tab);
+    renderExactMatchWarning(await loadRecentPostingsTrackingState(getCurrentStart(tab.url)));
     const [injectionResult] = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
       func: captureRecentJobPostings,
@@ -168,9 +219,13 @@ async function scanRecentPostings() {
     const listings = Array.isArray(result.listings) ? result.listings : [];
     const knownCompanyCount = listings.filter((listing) => listing.companySource !== 'missing').length;
     try {
-      await trackRecentPostingsScan(tab.url, knownCompanyCount);
+      await trackRecentPostingsScan(tab.url, knownCompanyCount, result.cardCount, result.exactMatchBoundary);
     } catch (error) {
+      const persistenceError = permissionError || error;
       console.warn(`Failed to update search-tracking.csv Recent Postings: ${error?.name || 'Error'}: ${error?.message || String(error)}`);
+      if (userInitiated) {
+        setStatus('error', 'Search Tracking Not Saved', searchTrackingErrorMessage(persistenceError));
+      }
     }
     if (listings.length === 0) {
       const debugSuffix = result.debug
@@ -462,6 +517,12 @@ function openOptions() {
 }
 
 async function openJobSearchUrl(buildUrl, failureTitle, searchType) {
+  let permissionError = null;
+  try {
+    await prepareSearchTrackingWrite();
+  } catch (error) {
+    permissionError = error;
+  }
   const settings = await loadJobSearchSettings();
   if (!isJobSearchConfigured(settings)) {
     setStatus('error', 'Job Search Not Configured', 'Set keywords and geoId in Options, then try again.');
@@ -480,9 +541,16 @@ async function openJobSearchUrl(buildUrl, failureTitle, searchType) {
 
   try {
     await appendSearchTrackingRow(searchType);
+  } catch (error) {
+    const persistenceError = permissionError || error;
+    console.warn(`Failed to record search-tracking.csv row for "${searchType}":`, error);
+    setStatus('error', 'Search Opened; Tracking Not Saved', searchTrackingErrorMessage(persistenceError));
+  }
+
+  try {
     await resetRecentPostingsTrackingState(0);
   } catch (error) {
-    console.warn(`Failed to record search-tracking.csv row for "${searchType}":`, error);
+    console.warn('Failed to reset search session tracking state:', error);
   }
 }
 
@@ -506,6 +574,12 @@ function updateNextPageButtonLabel(tab) {
 
 async function goToNextPage() {
   try {
+    let permissionError = null;
+    try {
+      await prepareSearchTrackingWrite();
+    } catch (error) {
+      permissionError = error;
+    }
     const tab = await getActiveTab();
     if (!tab.url || !isLinkedInJobSearchUrl(tab.url)) {
       setStatus('error', 'Not a Job Search Page', 'Open a LinkedIn job search (generic or premium) first, then try Next Page.');
@@ -532,13 +606,16 @@ async function goToNextPage() {
     try {
       const result = await updateLastSearchTrackingRow({
         postsSeen: nextStart,
-        recentPostings: recentPostingsState ? recentPostingsRunningTotal(recentPostingsState) : undefined
+        recentPostings: recentPostingsState ? recentPostingsRunningTotal(recentPostingsState) : undefined,
+        exactMatches: recentPostingsState?.exactMatches ?? undefined
       });
       if (result?.skipped) {
-        console.debug('Skipped search-tracking.csv paging totals update:', result.reason);
+        throw new Error(`search-tracking.csv update was skipped: ${result.reason}`);
       }
     } catch (error) {
+      const persistenceError = permissionError || error;
       console.warn(`Failed to update search-tracking.csv paging totals: ${error?.name || 'Error'}: ${error?.message || String(error)}`);
+      setStatus('warning', 'Page Advanced; Tracking Not Saved', searchTrackingErrorMessage(persistenceError));
     }
   } catch (error) {
     setStatus('error', 'Next Page Failed', error.message || String(error));
@@ -627,7 +704,7 @@ elements.optionsButton.addEventListener('click', openOptions);
 elements.openJobSearchButton.addEventListener('click', openJobSearch);
 elements.openPremiumJobSearchButton.addEventListener('click', openPremiumJobSearch);
 elements.nextPageButton.addEventListener('click', goToNextPage);
-elements.refreshRecentPostingsButton.addEventListener('click', scanRecentPostings);
+elements.refreshRecentPostingsButton.addEventListener('click', () => scanRecentPostings(true));
 chrome.runtime.onMessage.addListener((message) => {
   if (message?.type === AUTO_CAPTURE_READY_MESSAGE) {
     consumeAutoCaptureIntent().catch((error) => {

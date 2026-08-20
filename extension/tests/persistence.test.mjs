@@ -3,6 +3,7 @@ import {
   CSV_HEADER_LINE,
   CSV_HEADER_TEXT,
   escapeCsvField,
+  FIVE_COLUMN_SEARCH_CSV_HEADER_LINE,
   findOldTrackingCompany,
   findPriorCompanyCaptures,
   formatUnknownCompanyPlaceholder,
@@ -56,6 +57,7 @@ import {
 import {
   advanceRecentPostingsPage,
   recentPostingsRunningTotal,
+  recordExactMatchBoundaryScan,
   recordRecentPostingsScan
 } from '../shared/recentPostingsTracking.js';
 import {
@@ -399,8 +401,8 @@ async function runAppendSearchTrackingRowTest() {
   const projectHandle = fakeProjectHandle();
   setStoredProjectHandle(projectHandle);
 
-  const row = serializeSearchTrackingRow({ timestamp: '2026-07-27 09:15:00', searchType: SEARCH_TYPE_JOB_SEARCH, postsSeen: 25, recentPostings: 0, freshness: '2 hours or less' });
-  assert(row === '2026-07-27 09:15:00,Open Job Search,25,0,2 hours or less\r\n', `Unexpected search-tracking row: ${row}`);
+  const row = serializeSearchTrackingRow({ timestamp: '2026-07-27 09:15:00', searchType: SEARCH_TYPE_JOB_SEARCH, postsSeen: 25, recentPostings: 0, freshness: '2 hours or less', exactMatches: 'UNKNOWN' });
+  assert(row === '2026-07-27 09:15:00,Open Job Search,25,0,2 hours or less,UNKNOWN\r\n', `Unexpected search-tracking row: ${row}`);
 
   const firstResult = await appendSearchTrackingRow(SEARCH_TYPE_JOB_SEARCH, new Date(2026, 6, 27, 9, 15, 0));
   assert(firstResult.ok === true, 'Expected first search-tracking append to succeed.');
@@ -426,14 +428,14 @@ async function runUpdateLastSearchTrackingRowPostsSeenTest() {
 
   globalThis.chrome = { storage: { local: fakeChromeStorageLocal() } };
   await saveRecentPostingsAgeSetting(RECENT_POSTINGS_AGE_VALUES.ONE_HOUR_OR_LESS);
-  const updateResult = await updateLastSearchTrackingRow({ postsSeen: 50, recentPostings: 7 });
+  const updateResult = await updateLastSearchTrackingRow({ postsSeen: 50, recentPostings: 7, exactMatches: 31 });
   assert(updateResult.ok === true && updateResult.updated === true, `Expected Posts Seen update to succeed, got ${JSON.stringify(updateResult)}.`);
 
   const csvText = await projectHandle.rootFiles.get(SEARCH_TRACKING_CSV_FILENAME).text();
   const rows = csvText.trim().split('\r\n');
   assert(rows.length === 3, `Expected header plus two data rows, got ${rows.length}.`);
   assert(rows[1].includes(',25,0,2 hours or less'), `Expected first row's postsSeen to remain 25, got: ${rows[1]}`);
-  assert(rows[2].includes(',50,7,1 hour or less'), `Expected last row's postsSeen to be updated to 50, got: ${rows[2]}`);
+  assert(rows[2].includes(',50,7,1 hour or less,31'), `Expected last row's tracking values to be updated, got: ${rows[2]}`);
   delete globalThis.chrome;
 }
 
@@ -481,8 +483,8 @@ async function runSearchTrackingLegacyMigrationTest() {
   assert(result.csvCreated === false, 'Expected legacy migration to reuse the existing file rather than report creation.');
 
   const csvText = await projectHandle.rootFiles.get(SEARCH_TRACKING_CSV_FILENAME).text();
-  assert(validateCsvHeader(csvText, SEARCH_CSV_HEADER_LINE).ok, 'Expected migrated file to start with the new 5-column header.');
-  assert(csvText.includes('2026-07-27 09:15:00,Open Job Search,0,0,Unknown'), 'Expected legacy row to be backfilled with default tracking values.');
+  assert(validateCsvHeader(csvText, SEARCH_CSV_HEADER_LINE).ok, 'Expected migrated file to start with the new 6-column header.');
+  assert(csvText.includes('2026-07-27 09:15:00,Open Job Search,0,0,Unknown,UNKNOWN'), 'Expected legacy row to be backfilled with default tracking values.');
   assert(csvText.includes('2026-07-27 09:16:30,Open Premium Job Search,0,0,Unknown'), 'Expected legacy row to be backfilled with default tracking values.');
   assert(csvText.includes('2026-07-27 09:30:00,Open Job Search,25,0,2 hours or less'), 'Expected newly appended row to have default recent-postings values.');
 }
@@ -496,8 +498,20 @@ async function runSearchTrackingPreviousSchemaMigrationTest() {
 
   await updateLastSearchTrackingRow({ recentPostings: 4 });
   const csvText = await projectHandle.rootFiles.get(SEARCH_TRACKING_CSV_FILENAME).text();
-  assert(validateCsvHeader(csvText, SEARCH_CSV_HEADER_LINE).ok, 'Expected the 3-column schema to migrate to 5 columns.');
-  assert(csvText.includes('2026-07-27 09:15:00,Open Job Search,75,4,2 hours or less'), 'Expected migration to preserve postsSeen and apply the update.');
+  assert(validateCsvHeader(csvText, SEARCH_CSV_HEADER_LINE).ok, 'Expected the 3-column schema to migrate to 6 columns.');
+  assert(csvText.includes('2026-07-27 09:15:00,Open Job Search,75,4,2 hours or less,UNKNOWN'), 'Expected migration to preserve postsSeen and apply the update.');
+}
+
+async function runSearchTrackingFiveColumnMigrationTest() {
+  const projectHandle = fakeProjectHandle();
+  setStoredProjectHandle(projectHandle);
+  const previousText = `${CSV_BOM}${FIVE_COLUMN_SEARCH_CSV_HEADER_LINE}\r\n2026-08-14 09:15:00,Open Job Search,50,8,2 hours or less\r\n`;
+  projectHandle.rootFiles.set(SEARCH_TRACKING_CSV_FILENAME, fakeWritableFile(previousText));
+
+  await updateLastSearchTrackingRow({ exactMatches: 37 });
+  const csvText = await projectHandle.rootFiles.get(SEARCH_TRACKING_CSV_FILENAME).text();
+  assert(validateCsvHeader(csvText, SEARCH_CSV_HEADER_LINE).ok, 'Expected the 5-column schema to migrate to 6 columns.');
+  assert(csvText.includes('2026-08-14 09:15:00,Open Job Search,50,8,2 hours or less,37'), 'Expected 5-column migration to preserve values and accept an exact-match update.');
 }
 
 function runRecentPostingsTrackingTests() {
@@ -518,6 +532,21 @@ function runRecentPostingsTrackingTests() {
 
   state = recordRecentPostingsScan(state, 50, 5);
   assert(recentPostingsRunningTotal(state) === 8, 'Expected direct page navigation to commit the prior page before scanning.');
+
+  let exactState = recordExactMatchBoundaryScan(null, 0, 25, { detected: false, exactMatchesOnPage: null });
+  exactState = advanceRecentPostingsPage(exactState, 25);
+  exactState = recordExactMatchBoundaryScan(exactState, 25, 25, { detected: true, exactMatchesOnPage: 6 });
+  assert(exactState.exactBoundaryDetected === true && exactState.exactMatches === 31, `Expected a continuous second-page boundary total of 31, got ${JSON.stringify(exactState)}.`);
+
+  exactState = recordExactMatchBoundaryScan(exactState, 25, 20, { detected: true, exactMatchesOnPage: 4 });
+  assert(exactState.exactMatches === 31, 'Expected the first confident exact-match count to survive a conflicting same-page rescan.');
+
+  const discontinuous = recordExactMatchBoundaryScan(null, 25, 25, { detected: true, exactMatchesOnPage: 6 });
+  assert(discontinuous.exactBoundaryDetected === true && discontinuous.exactMatches === null, 'Expected a skipped first page to notify but leave the exact-match count unknown.');
+
+  let manuallyPaged = recordExactMatchBoundaryScan(null, 0, 25, { detected: false, exactMatchesOnPage: null });
+  manuallyPaged = recordExactMatchBoundaryScan(manuallyPaged, 25, 25, { detected: true, exactMatchesOnPage: 6 });
+  assert(manuallyPaged.exactBoundaryDetected === true && manuallyPaged.exactMatches === null, 'Expected direct page navigation without Next Page continuity to leave the count unknown.');
 }
 async function runReservationTests() {
   const record = sampleRecord();
@@ -665,6 +694,7 @@ await runUpdateLastSearchTrackingRowPostsSeenTest();
 await runUpdateLastSearchTrackingRowSkipsWithoutPromptTest();
 await runSearchTrackingLegacyMigrationTest();
 await runSearchTrackingPreviousSchemaMigrationTest();
+await runSearchTrackingFiveColumnMigrationTest();
 runRecentPostingsTrackingTests();
 await runRecentPostingsSettingsTests();
 await runJobSearchSettingsTests();
