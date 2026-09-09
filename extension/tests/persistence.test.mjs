@@ -19,6 +19,7 @@ import {
   serializeCsvRow,
   serializeRecordCsvRow,
   serializeSearchTrackingRow,
+  SIX_COLUMN_SEARCH_CSV_HEADER_LINE,
   validateCsvHeader
 } from '../shared/csv.js';
 import {
@@ -401,8 +402,11 @@ async function runAppendSearchTrackingRowTest() {
   const projectHandle = fakeProjectHandle();
   setStoredProjectHandle(projectHandle);
 
-  const row = serializeSearchTrackingRow({ timestamp: '2026-07-27 09:15:00', searchType: SEARCH_TYPE_JOB_SEARCH, postsSeen: 25, recentPostings: 0, freshness: '2 hours or less', exactMatches: 'UNKNOWN' });
-  assert(row === '2026-07-27 09:15:00,Open Job Search,25,0,2 hours or less,UNKNOWN\r\n', `Unexpected search-tracking row: ${row}`);
+  const row = serializeSearchTrackingRow({ timestamp: '2026-07-27 09:15:00', searchType: SEARCH_TYPE_JOB_SEARCH, postsSeen: 25, recentPostings: 0, freshness: '2 hours or less', exactMatches: 'UNKNOWN', notes: '' });
+  assert(row === '2026-07-27 09:15:00,Open Job Search,25,0,2 hours or less,UNKNOWN,\r\n', `Unexpected search-tracking row: ${row}`);
+
+  const notedRow = serializeSearchTrackingRow({ timestamp: '2026-07-27 09:15:00', searchType: SEARCH_TYPE_JOB_SEARCH, postsSeen: 25, recentPostings: 0, freshness: '2 hours or less', exactMatches: 'UNKNOWN', notes: 'Follow up, then wait' });
+  assert(notedRow === '2026-07-27 09:15:00,Open Job Search,25,0,2 hours or less,UNKNOWN,"Follow up, then wait"\r\n', `Unexpected noted search-tracking row: ${notedRow}`);
 
   const firstResult = await appendSearchTrackingRow(SEARCH_TYPE_JOB_SEARCH, new Date(2026, 6, 27, 9, 15, 0));
   assert(firstResult.ok === true, 'Expected first search-tracking append to succeed.');
@@ -483,7 +487,7 @@ async function runSearchTrackingLegacyMigrationTest() {
   assert(result.csvCreated === false, 'Expected legacy migration to reuse the existing file rather than report creation.');
 
   const csvText = await projectHandle.rootFiles.get(SEARCH_TRACKING_CSV_FILENAME).text();
-  assert(validateCsvHeader(csvText, SEARCH_CSV_HEADER_LINE).ok, 'Expected migrated file to start with the new 6-column header.');
+  assert(validateCsvHeader(csvText, SEARCH_CSV_HEADER_LINE).ok, 'Expected migrated file to start with the new 7-column header.');
   assert(csvText.includes('2026-07-27 09:15:00,Open Job Search,0,0,Unknown,UNKNOWN'), 'Expected legacy row to be backfilled with default tracking values.');
   assert(csvText.includes('2026-07-27 09:16:30,Open Premium Job Search,0,0,Unknown'), 'Expected legacy row to be backfilled with default tracking values.');
   assert(csvText.includes('2026-07-27 09:30:00,Open Job Search,25,0,2 hours or less'), 'Expected newly appended row to have default recent-postings values.');
@@ -510,8 +514,53 @@ async function runSearchTrackingFiveColumnMigrationTest() {
 
   await updateLastSearchTrackingRow({ exactMatches: 37 });
   const csvText = await projectHandle.rootFiles.get(SEARCH_TRACKING_CSV_FILENAME).text();
-  assert(validateCsvHeader(csvText, SEARCH_CSV_HEADER_LINE).ok, 'Expected the 5-column schema to migrate to 6 columns.');
-  assert(csvText.includes('2026-08-14 09:15:00,Open Job Search,50,8,2 hours or less,37'), 'Expected 5-column migration to preserve values and accept an exact-match update.');
+  assert(validateCsvHeader(csvText, SEARCH_CSV_HEADER_LINE).ok, 'Expected the 5-column schema to migrate to 7 columns.');
+  assert(csvText.includes('2026-08-14 09:15:00,Open Job Search,50,8,2 hours or less,37,'), 'Expected 5-column migration to preserve values, accept an exact-match update, and add a blank notes column.');
+}
+
+async function runSearchTrackingSixColumnMigrationTest() {
+  const projectHandle = fakeProjectHandle();
+  setStoredProjectHandle(projectHandle);
+  const previousText = `${CSV_BOM}${SIX_COLUMN_SEARCH_CSV_HEADER_LINE}\r\n2026-09-01 09:15:00,Open Job Search,50,8,2 hours or less,31\r\n`;
+  projectHandle.rootFiles.set(SEARCH_TRACKING_CSV_FILENAME, fakeWritableFile(previousText));
+
+  await updateLastSearchTrackingRow({ recentPostings: 9 });
+  const csvText = await projectHandle.rootFiles.get(SEARCH_TRACKING_CSV_FILENAME).text();
+  assert(validateCsvHeader(csvText, SEARCH_CSV_HEADER_LINE).ok, 'Expected the 6-column schema to migrate to 7 columns.');
+  assert(csvText.includes('2026-09-01 09:15:00,Open Job Search,50,9,2 hours or less,31,'), 'Expected 6-column migration to preserve existing values and add a blank notes column.');
+}
+
+async function runSearchTrackingNotesPreservedTest() {
+  const projectHandle = fakeProjectHandle();
+  setStoredProjectHandle(projectHandle);
+
+  await appendSearchTrackingRow(SEARCH_TYPE_JOB_SEARCH, new Date(2026, 8, 1, 9, 15, 0));
+  const appendedCsvText = await projectHandle.rootFiles.get(SEARCH_TRACKING_CSV_FILENAME).text();
+  assert(appendedCsvText.endsWith(',\r\n'), `Expected a newly appended row to end with a blank notes field, got: ${appendedCsvText}`);
+
+  globalThis.chrome = { storage: { local: fakeChromeStorageLocal() } };
+
+  // Simulate the user hand-editing the Notes column directly in the CSV file.
+  const withHandwrittenNote = (await projectHandle.rootFiles.get(SEARCH_TRACKING_CSV_FILENAME).text())
+    .replace(/,\r\n$/, `,"Interesting role, worth a follow-up\nCheck back Friday"\r\n`);
+  projectHandle.rootFiles.set(SEARCH_TRACKING_CSV_FILENAME, fakeWritableFile(withHandwrittenNote));
+
+  await updateLastSearchTrackingRow({ postsSeen: 50, recentPostings: 7, exactMatches: 31 });
+  const afterFirstUpdate = await projectHandle.rootFiles.get(SEARCH_TRACKING_CSV_FILENAME).text();
+  assert(
+    afterFirstUpdate.includes('"Interesting role, worth a follow-up\nCheck back Friday"'),
+    `Expected the hand-written note to survive a tracking update, got: ${afterFirstUpdate}`
+  );
+
+  await updateLastSearchTrackingRow({ postsSeen: 75 });
+  const afterSecondUpdate = await projectHandle.rootFiles.get(SEARCH_TRACKING_CSV_FILENAME).text();
+  assert(
+    afterSecondUpdate.includes('"Interesting role, worth a follow-up\nCheck back Friday"'),
+    `Expected the hand-written note to survive a second tracking update, got: ${afterSecondUpdate}`
+  );
+  assert(afterSecondUpdate.includes(',75,7,'), 'Expected postsSeen to update while the note is preserved.');
+
+  delete globalThis.chrome;
 }
 
 function runRecentPostingsTrackingTests() {
@@ -695,6 +744,8 @@ await runUpdateLastSearchTrackingRowSkipsWithoutPromptTest();
 await runSearchTrackingLegacyMigrationTest();
 await runSearchTrackingPreviousSchemaMigrationTest();
 await runSearchTrackingFiveColumnMigrationTest();
+await runSearchTrackingSixColumnMigrationTest();
+await runSearchTrackingNotesPreservedTest();
 runRecentPostingsTrackingTests();
 await runRecentPostingsSettingsTests();
 await runJobSearchSettingsTests();

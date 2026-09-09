@@ -12,6 +12,7 @@ import {
   serializeCsvRow,
   serializeRecordCsvRow,
   serializeSearchTrackingRow,
+  SIX_COLUMN_SEARCH_CSV_HEADER_LINE,
   validateCsvHeader
 } from './csv.js';
 import { getRecentPostingsAgeConfig, loadRecentPostingsAgeSetting } from './recentPostingsSettings.js';
@@ -133,7 +134,8 @@ async function migrateLegacySearchTrackingCsv(csvHandle, text, hasPostsSeen) {
       postsSeen: hasPostsSeen ? row[2] || String(SEARCH_TRACKING_LEGACY_POSTS_SEEN) : SEARCH_TRACKING_LEGACY_POSTS_SEEN,
       recentPostings: SEARCH_TRACKING_INITIAL_RECENT_POSTINGS,
       freshness: SEARCH_TRACKING_UNKNOWN_FRESHNESS,
-      exactMatches: SEARCH_TRACKING_UNKNOWN_EXACT_MATCHES
+      exactMatches: SEARCH_TRACKING_UNKNOWN_EXACT_MATCHES,
+      notes: ''
     }),
     SEARCH_CSV_HEADER_TEXT
   );
@@ -154,6 +156,25 @@ async function ensureSearchTrackingCsvReady(projectHandle) {
     return { csvHandle, created: false };
   }
 
+  const sixColumnHeader = validateCsvHeader(text, SIX_COLUMN_SEARCH_CSV_HEADER_LINE);
+  if (sixColumnHeader.ok) {
+    const dataRows = parseCsvRows(text).slice(1);
+    const migratedText = dataRows.reduce(
+      (acc, row) => acc + serializeSearchTrackingRow({
+        timestamp: row[0] || '',
+        searchType: row[1] || '',
+        postsSeen: row[2] || '',
+        recentPostings: row[3] || '',
+        freshness: row[4] || '',
+        exactMatches: row[5] || SEARCH_TRACKING_UNKNOWN_EXACT_MATCHES,
+        notes: ''
+      }),
+      SEARCH_CSV_HEADER_TEXT
+    );
+    await writeTextFile(csvHandle, migratedText);
+    return { csvHandle, created: false };
+  }
+
   const fiveColumnHeader = validateCsvHeader(text, FIVE_COLUMN_SEARCH_CSV_HEADER_LINE);
   if (fiveColumnHeader.ok) {
     const dataRows = parseCsvRows(text).slice(1);
@@ -164,7 +185,8 @@ async function ensureSearchTrackingCsvReady(projectHandle) {
         postsSeen: row[2] || '',
         recentPostings: row[3] || '',
         freshness: row[4] || '',
-        exactMatches: SEARCH_TRACKING_UNKNOWN_EXACT_MATCHES
+        exactMatches: SEARCH_TRACKING_UNKNOWN_EXACT_MATCHES,
+        notes: ''
       }),
       SEARCH_CSV_HEADER_TEXT
     );
@@ -214,7 +236,8 @@ export async function appendSearchTrackingRow(searchType, now = new Date()) {
       postsSeen: SEARCH_TRACKING_INITIAL_POSTS_SEEN,
       recentPostings: SEARCH_TRACKING_INITIAL_RECENT_POSTINGS,
       freshness,
-      exactMatches: SEARCH_TRACKING_UNKNOWN_EXACT_MATCHES
+      exactMatches: SEARCH_TRACKING_UNKNOWN_EXACT_MATCHES,
+      notes: ''
     })
   );
 
@@ -269,6 +292,8 @@ export async function updateLastSearchTrackingRow({ postsSeen, recentPostings, e
     lastRow[5] = String(exactMatches);
   }
 
+  // `notes` (row[6]) is a manually maintained column: it is carried through
+  // untouched on every row here and must never be assigned a computed value.
   const updatedText = dataRows.reduce(
     (acc, row) => acc + serializeSearchTrackingRow({
       timestamp: row[0] || '',
@@ -276,7 +301,8 @@ export async function updateLastSearchTrackingRow({ postsSeen, recentPostings, e
       postsSeen: row[2] || '',
       recentPostings: row[3] || '',
       freshness: row[4] || '',
-      exactMatches: row[5] || SEARCH_TRACKING_UNKNOWN_EXACT_MATCHES
+      exactMatches: row[5] || SEARCH_TRACKING_UNKNOWN_EXACT_MATCHES,
+      notes: row[6] || ''
     }),
     SEARCH_CSV_HEADER_TEXT
   );

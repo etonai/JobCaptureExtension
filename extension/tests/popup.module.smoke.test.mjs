@@ -208,11 +208,11 @@ assert(refreshedCsvText.includes(',2 hours or less,2'), 'Expected manual Refresh
 
 await elements.get('#openJobSearchButton').listeners.get('click')();
 let triggeredCsvText = await (await searchCsv.getFile()).text();
-assert(triggeredCsvText.includes('Open Job Search,25,0,2 hours or less,UNKNOWN'), 'Expected Open Job Search to append a six-column tracking row.');
+assert(triggeredCsvText.includes('Open Job Search,25,0,2 hours or less,UNKNOWN'), 'Expected Open Job Search to append a seven-column tracking row.');
 
 await elements.get('#openPremiumJobSearchButton').listeners.get('click')();
 triggeredCsvText = await (await searchCsv.getFile()).text();
-assert(triggeredCsvText.includes('Open Premium Job Search,25,0,2 hours or less,UNKNOWN'), 'Expected Open Premium Job Search to append a six-column tracking row.');
+assert(triggeredCsvText.includes('Open Premium Job Search,25,0,2 hours or less,UNKNOWN'), 'Expected Open Premium Job Search to append a seven-column tracking row.');
 
 await elements.get('#nextPageButton').listeners.get('click')();
 await elements.get('#nextPageButton').listeners.get('click')();

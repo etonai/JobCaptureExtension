@@ -20,9 +20,15 @@ export const CSV_BOM = '\uFEFF';
 export const CSV_HEADER_LINE = CSV_COLUMNS.join(',');
 export const CSV_HEADER_TEXT = `${CSV_BOM}${CSV_HEADER_LINE}\r\n`;
 
-export const SEARCH_CSV_COLUMNS = ['timestamp', 'searchType', 'postsSeen', 'recentPostings', 'freshness', 'exactMatches'];
+export const SEARCH_CSV_COLUMNS = ['timestamp', 'searchType', 'postsSeen', 'recentPostings', 'freshness', 'exactMatches', 'notes'];
 export const SEARCH_CSV_HEADER_LINE = SEARCH_CSV_COLUMNS.join(',');
 export const SEARCH_CSV_HEADER_TEXT = `${CSV_BOM}${SEARCH_CSV_HEADER_LINE}\r\n`;
+
+// `notes` is a manually maintained column: the extension only ever writes a
+// blank default for a brand-new or migrated row and otherwise leaves it
+// completely alone (see updateLastSearchTrackingRow in saveListing.js).
+export const SIX_COLUMN_SEARCH_CSV_COLUMNS = ['timestamp', 'searchType', 'postsSeen', 'recentPostings', 'freshness', 'exactMatches'];
+export const SIX_COLUMN_SEARCH_CSV_HEADER_LINE = SIX_COLUMN_SEARCH_CSV_COLUMNS.join(',');
 
 export const FIVE_COLUMN_SEARCH_CSV_COLUMNS = ['timestamp', 'searchType', 'postsSeen', 'recentPostings', 'freshness'];
 export const FIVE_COLUMN_SEARCH_CSV_HEADER_LINE = FIVE_COLUMN_SEARCH_CSV_COLUMNS.join(',');
@@ -82,14 +88,15 @@ export function serializeRecordCsvRow(record) {
   return serializeCsvRow(recordToCsvValues(record));
 }
 
-export function serializeSearchTrackingRow({ timestamp, searchType, postsSeen, recentPostings, freshness, exactMatches }) {
+export function serializeSearchTrackingRow({ timestamp, searchType, postsSeen, recentPostings, freshness, exactMatches, notes }) {
   return serializeCsvRow([
     timestamp || '',
     searchType || '',
     postsSeen == null ? '' : String(postsSeen),
     recentPostings == null ? '' : String(recentPostings),
     freshness || '',
-    exactMatches == null ? '' : String(exactMatches)
+    exactMatches == null ? '' : String(exactMatches),
+    notes || ''
   ]);
 }
 export function parseCsvRows(text) {
