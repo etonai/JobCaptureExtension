@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { captureActivePage, captureGenericPage, captureRecentJobPostings } from '../content/captureActivePage.js';
+import { captureActivePage, captureGenericPage, captureRecentJobPostings, dismissBlacklistedCompanyCards } from '../content/captureActivePage.js';
 
 function textNode(text) {
   return { nodeType: 3, textContent: text };
@@ -915,6 +915,78 @@ function runRecentPostingCardHighlightTest() {
   assert(!Object.hasOwn(older.root.attrs, 'data-job-capture-recent'), 'Expected a later narrow rescan to remove the stale marker from the older card.');
   assert(Object.hasOwn(fresh.root.attrs, 'data-job-capture-recent'), 'Expected the qualifying card to be re-marked after cleanup.');
 }
+function runDismissBlacklistedCompanyCardsTest() {
+  function clickableCard({ title, company, age }) {
+    const titleNode = titleParagraph(title);
+    const companyNode = company === undefined ? null : textParagraph(company);
+    const locationNode = textParagraph('Seattle, WA');
+    const ageNode = age === undefined ? null : ageParagraph(age);
+    const dismissButton = elementNode('button', { 'aria-label': `Dismiss ${title} job` });
+    dismissButton.click = () => {
+      dismissButton.clicked = (dismissButton.clicked || 0) + 1;
+    };
+    const paragraphs = [titleNode, ...(companyNode ? [companyNode] : []), locationNode, ...(ageNode ? [ageNode] : [])];
+    const content = elementNode('div', {}, paragraphs);
+    const root = elementNode('article', {}, [content, dismissButton]);
+    return { root, paragraphs, dismissButton };
+  }
+
+  // Amazon appears twice (no age on the second, to prove age is irrelevant to
+  // this feature), Redfin is not blacklisted, and Beta has no company row.
+  const amazon1 = clickableCard({ title: 'Sr Software Engineer', company: 'Amazon', age: 'Posted 5 minutes ago' });
+  const amazon2 = clickableCard({ title: 'Warehouse Ops Engineer', company: 'Amazon', age: undefined });
+  const redfin = clickableCard({ title: 'Software Developer I', company: 'Redfin', age: '1 hour ago' });
+  const noCompany = clickableCard({ title: 'Platform Engineer', company: undefined, age: 'Posted 10 minutes ago' });
+
+  const paragraphNodes = [...amazon1.paragraphs, ...amazon2.paragraphs, ...redfin.paragraphs, ...noCompany.paragraphs];
+  const buttonNodes = [amazon1.dismissButton, amazon2.dismissButton, redfin.dismissButton, noCompany.dismissButton];
+  const domRoots = [amazon1.root, amazon2.root, redfin.root, noCompany.root];
+
+  setMockPage({
+    href: 'https://www.linkedin.com/jobs/search-results/?keywords=engineer',
+    hostname: 'www.linkedin.com',
+    pathname: '/jobs/search-results/',
+    title: 'Engineer Jobs | LinkedIn',
+    bodyText: 'LinkedIn job results',
+    paragraphNodes,
+    buttonNodes,
+    domRoots
+  });
+
+  const result = dismissBlacklistedCompanyCards(['amazon']);
+  assert(result.ok === true, 'Expected the blacklist scan to be supported on LinkedIn.');
+  assert(result.scanned === 4, `Expected all 4 cards scanned regardless of age, got ${result.scanned}.`);
+  assert(result.matched === 2, `Expected both Amazon cards to match, got ${result.matched}.`);
+  assert(result.dismissed === 2, `Expected both Amazon cards to be dismissed, got ${result.dismissed}.`);
+  assert(result.failed === 0, `Expected no dismiss failures, got ${result.failed}.`);
+  assert(amazon1.dismissButton.clicked === 1, 'Expected the first Amazon card dismiss button to be clicked.');
+  assert(amazon2.dismissButton.clicked === 1, 'Expected the age-less second Amazon card dismiss button to be clicked too.');
+  assert(!redfin.dismissButton.clicked, 'Expected the non-blacklisted Redfin card to be left alone.');
+  assert(!noCompany.dismissButton.clicked, 'Expected a card with no resolvable company never to match a blacklist entry.');
+
+  // No blacklist configured -> nothing scanned for matches, no clicks.
+  amazon1.dismissButton.clicked = 0;
+  amazon2.dismissButton.clicked = 0;
+  const emptyBlacklistResult = dismissBlacklistedCompanyCards([]);
+  assert(emptyBlacklistResult.dismissed === 0, 'Expected an empty blacklist to dismiss nothing.');
+  assert(!amazon1.dismissButton.clicked, 'Expected no clicks with an empty blacklist.');
+}
+
+function runDismissBlacklistedCompanyCardsUnsupportedPageTest() {
+  setMockPage({
+    href: 'https://example.com/jobs',
+    hostname: 'example.com',
+    pathname: '/jobs',
+    title: 'Example Jobs',
+    bodyText: 'Example Jobs'
+  });
+
+  const result = dismissBlacklistedCompanyCards(['Amazon']);
+  assert(result.ok === false, 'Expected non-LinkedIn page to be unsupported.');
+  assert(result.reason === 'not_linkedin', 'Expected not_linkedin reason.');
+  assert(result.dismissed === 0, 'Expected no dismissals on an unsupported page.');
+}
+
 function runRecentPostingsUnsupportedPageTest() {
   setMockPage({
     href: 'https://example.com/jobs',
@@ -1041,6 +1113,8 @@ runRecentPostingsDetailFallbackMissingCompanyTest();
 runRecentPostingsAgeFilterBoundaryTest();
 runRecentPostingCardHighlightTest();
 runRecentPostingsUnsupportedPageTest();
+runDismissBlacklistedCompanyCardsTest();
+runDismissBlacklistedCompanyCardsUnsupportedPageTest();
 runHtmlFixtureReferenceChecks();
 
 console.log('capture parser fixture tests passed');

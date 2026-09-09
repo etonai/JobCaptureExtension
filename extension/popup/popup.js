@@ -1,5 +1,6 @@
-import { captureActivePage, captureGenericPage, captureRecentJobPostings } from '../content/captureActivePage.js';
+import { captureActivePage, captureGenericPage, captureRecentJobPostings, dismissBlacklistedCompanyCards } from '../content/captureActivePage.js';
 import { ensureProjectPermission, ensureProjectReadPermission, getProjectFolderStatus, getStoredProjectFolder } from '../shared/projectFolderStore.js';
+import { loadBlacklist } from '../shared/blacklist.js';
 import { findCachedPriorCompanyWarning, findPriorCompanyInCache, refreshPriorCompanyCache } from '../shared/priorCompanyCache.js';
 import { formatUnknownCompanyPlaceholder } from '../shared/csv.js';
 import {
@@ -37,6 +38,7 @@ const elements = {
   saveButton: document.querySelector('#saveButton'),
   recordListingButton: document.querySelector('#recordListingButton'),
   notesInput: document.querySelector('#notesInput'),
+  hideBlacklistedButton: document.querySelector('#hideBlacklistedButton'),
   optionsButton: document.querySelector('#optionsButton'),
   openJobSearchButton: document.querySelector('#openJobSearchButton'),
   openPremiumJobSearchButton: document.querySelector('#openPremiumJobSearchButton'),
@@ -516,6 +518,54 @@ function openOptions() {
   chrome.runtime.openOptionsPage();
 }
 
+async function runHideBlacklisted() {
+  elements.hideBlacklistedButton.disabled = true;
+  setStatus('capturing', 'Hiding Blacklisted', 'Scanning the active LinkedIn tab for blacklisted companies.');
+
+  try {
+    const { companies, fileFound, folderConfigured } = await loadBlacklist();
+    if (!folderConfigured) {
+      setStatus('error', 'Project Folder Not Configured', 'Open Options and choose a project folder, then add blacklist.txt there to hide companies.');
+      return;
+    }
+    if (!fileFound) {
+      setStatus('warning', 'No Blacklist File', 'blacklist.txt was not found in the project folder. Nothing to hide.');
+      return;
+    }
+    if (companies.length === 0) {
+      setStatus('warning', 'Blacklist Empty', 'blacklist.txt has no company names. Nothing to hide.');
+      return;
+    }
+
+    const tab = await getActiveTab();
+    const [injectionResult] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: dismissBlacklistedCompanyCards,
+      args: [companies]
+    });
+    const result = injectionResult?.result;
+    if (!result) {
+      throw new Error('The active tab did not return a result.');
+    }
+    if (!result.ok) {
+      setStatus('unsupported', 'Unsupported Page', result.message || 'Open a LinkedIn jobs page to hide blacklisted companies.');
+      return;
+    }
+    if (result.dismissed === 0) {
+      setStatus('ready', 'No Matches Found', `Scanned ${result.scanned} card${result.scanned === 1 ? '' : 's'}; no blacklisted companies were showing.`);
+      return;
+    }
+
+    const noun = result.dismissed === 1 ? 'posting' : 'postings';
+    const failedSuffix = result.failed ? ` ${result.failed} matching card${result.failed === 1 ? '' : 's'} could not be dismissed.` : '';
+    setStatus('captured', 'Blacklisted Postings Hidden', `Hid ${result.dismissed} ${noun} from blacklisted companies.${failedSuffix}`);
+  } catch (error) {
+    setStatus('error', 'Hide Blacklisted Failed', error.message || String(error));
+  } finally {
+    elements.hideBlacklistedButton.disabled = false;
+  }
+}
+
 async function openJobSearchUrl(buildUrl, failureTitle, searchType) {
   let permissionError = null;
   try {
@@ -705,6 +755,7 @@ elements.openJobSearchButton.addEventListener('click', openJobSearch);
 elements.openPremiumJobSearchButton.addEventListener('click', openPremiumJobSearch);
 elements.nextPageButton.addEventListener('click', goToNextPage);
 elements.refreshRecentPostingsButton.addEventListener('click', () => scanRecentPostings(true));
+elements.hideBlacklistedButton.addEventListener('click', runHideBlacklisted);
 chrome.runtime.onMessage.addListener((message) => {
   if (message?.type === AUTO_CAPTURE_READY_MESSAGE) {
     consumeAutoCaptureIntent().catch((error) => {

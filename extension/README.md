@@ -28,6 +28,7 @@ Implemented in the current shell:
 - Recent Postings scans update a durable per-search running total in search-tracking.csv; rescanning replaces the current page count, while "Next Page" commits that count before starting the next page at zero
 - persistent `host_permissions` grant for `https://www.linkedin.com/*`, so script injection works immediately after the extension's own "Open Job Search" / "Open Premium Job Search" / "Next Page" navigations without requiring the popup to be closed and reopened
 - DevCycle030's "Capture Page" button, for job listings on arbitrary (non-LinkedIn) career pages — see "Capture Page (Non-LinkedIn Listings)" below
+- DevCycle035's "Hide Blacklisted" button, which dismisses every visible LinkedIn results-list card from a company named in an optional `blacklist.txt` — see "Hide Blacklisted (Company Blacklist)" below
 
 It does not implement the final editable review UI. The Save action writes the current captured parser result; DevCycle006 will add richer field editing before save.
 
@@ -54,13 +55,16 @@ extension/
     projectFolderStore.js
     priorCompanyCache.js
     recentPostingsSettings.js
+    recentPostingsTracking.js
     jobSearchSettings.js
     searchUrlBuilder.js
     pagingUrl.js
     saveListing.js
+    blacklist.js
   tests/
     captureActivePage.smoke.test.mjs
     persistence.test.mjs
+    popup.module.smoke.test.mjs
     searchUrlBuilder.test.mjs
     pagingUrl.test.mjs
   PARSER_NOTES.md
@@ -178,6 +182,14 @@ Every field it can't confidently resolve is set to the literal string `UNKNOWN` 
 
 Saving a "Capture Page" result uses the same "Save Capture" pipeline as a LinkedIn capture: JSON + `.txt` + `.md` files in `saved-listings/`, plus a row appended to `job-tracking.csv` — not the CSV-only `other-listings.csv` path used by "Record Listing".
 
+## Hide Blacklisted (Company Blacklist)
+
+The popup has a **Hide Blacklisted** button directly below the Notes field. It reads an optional `blacklist.txt` file from the project folder — one company name per line, blank lines and lines starting with `#` ignored — then injects `dismissBlacklistedCompanyCards()` (`extension/content/captureActivePage.js`) into the active tab. That function scans every results-list card on the page (regardless of posting age; a card's age is irrelevant to which company posted it), and for each card whose company matches a blacklist entry exactly (case-insensitive, whitespace-normalized), it clicks that card's own LinkedIn "Dismiss" button — the same button a user would click by hand — so LinkedIn stops showing that posting. This is aimed at companies (Amazon is the recurring example) that post enough near-duplicate listings to crowd out everything else in the left-hand results column.
+
+`blacklist.txt` is entirely optional: a project folder with no such file, or no project folder configured at all, means there is simply nothing to hide, not an error. The popup reports one of: no project folder configured, no `blacklist.txt` found, an empty/comment-only blacklist, how many postings were hidden, or that no blacklisted companies were showing among the scanned cards. Matching is exact rather than substring, so a blacklist entry like `Amazon` will not also hide an unrelated company whose name merely contains that text.
+
+This feature only affects cards currently rendered on the active tab — it does not paginate to find more matches, does not modify `search-tracking.csv` or the Recent Postings count, and does not provide an in-popup blacklist editor; `blacklist.txt` is maintained externally as a plain text file in the project folder.
+
 ## Permissions
 
 The manifest requests `activeTab`, `scripting`, and `storage`, plus a persistent `host_permissions` grant for `https://www.linkedin.com/*`. The host permission exists because `activeTab`'s temporary access grant is tied to a user gesture on the extension's action (e.g. opening the popup) and does not survive the extension navigating the tab itself: clicking "Open Job Search", "Open Premium Job Search", or "Next Page" calls `chrome.tabs.update` to change the active tab's URL, which invalidates any `activeTab` grant from that popup session. Without a standing host permission, a same-session click of the Recent Postings refresh button after one of those navigations would fail with `Cannot access contents of the page. Extension manifest must request permission to access the respective host.`, since refreshing inside an already-open popup is not itself a fresh action-invocation gesture. `host_permissions` for `www.linkedin.com` removes that dependency for the one host the extension actually operates on.
@@ -201,6 +213,7 @@ node --check extension/shared/jobSearchSettings.js
 node --check extension/shared/searchUrlBuilder.js
 node --check extension/shared/pagingUrl.js
 node --check extension/shared/saveListing.js
+node --check extension/shared/blacklist.js
 node extension/tests/captureActivePage.smoke.test.mjs
 node extension/tests/persistence.test.mjs
 node extension/tests/popup.module.smoke.test.mjs

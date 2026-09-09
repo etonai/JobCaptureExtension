@@ -1070,6 +1070,214 @@ export function captureRecentJobPostings(ageFilter) {
 }
 
 // This function is injected on its own via `chrome.scripting.executeScript({
+// func: dismissBlacklistedCompanyCards })` (DevCycle035), which serializes
+// only this function's body — see the note above `detailPageListing()` for
+// why it can't call back into `captureRecentJobPostings()` or share its
+// helpers via closure. It deliberately duplicates the small subset of that
+// function's structural card-parsing helpers it needs.
+//
+// Unlike `captureRecentJobPostings()`, this considers EVERY results-list card
+// regardless of posting age: the blacklist is about which company posted the
+// job, not how recently. Card boundaries are still the title <p> to the next
+// title <p>, and the company is still the plain <p> immediately after the
+// title — the same verified positional structure (see DevCycle013.md).
+export function dismissBlacklistedCompanyCards(companies) {
+  function normalizeLine(value) {
+    return String(value ?? '').replace(/\s+/g, ' ').trim();
+  }
+
+  function isLinkedInHost(hostname) {
+    return hostname === 'www.linkedin.com' || hostname.endsWith('.linkedin.com');
+  }
+
+  function nodeText(node) {
+    return normalizeLine(node?.innerText || node?.textContent || '');
+  }
+
+  function isElementNode(node) {
+    return node?.nodeType === 1 || Boolean(node?.tagName);
+  }
+
+  function elementChildren(node) {
+    return Array.from(node?.childNodes || []).filter(isElementNode);
+  }
+
+  function tagNameOf(node) {
+    return String(node?.tagName || '').toLowerCase();
+  }
+
+  function paragraphElements(doc) {
+    return typeof doc?.querySelectorAll === 'function' ? Array.from(doc.querySelectorAll('p')) : [];
+  }
+
+  function stripVerifiedBadge(text) {
+    return normalizeLine(text).replace(/\s*\(verified job\)$/i, '');
+  }
+
+  function firstTwoSpanTexts(paragraph) {
+    return elementChildren(paragraph)
+      .filter((child) => tagNameOf(child) === 'span')
+      .slice(0, 2)
+      .map((span) => nodeText(span));
+  }
+
+  function isEchoTitleParagraph(paragraph) {
+    const spans = firstTwoSpanTexts(paragraph);
+    if (spans.length < 2) {
+      return false;
+    }
+    const first = stripVerifiedBadge(spans[0]);
+    const second = stripVerifiedBadge(spans[1]);
+    if (/\bago\b/i.test(first)) {
+      return false;
+    }
+    return Boolean(first) && first === second;
+  }
+
+  function dismissButtonTitles(doc) {
+    const buttons = typeof doc?.querySelectorAll === 'function'
+      ? Array.from(doc.querySelectorAll('button[aria-label]'))
+      : [];
+    const titles = new Set();
+    for (const button of buttons) {
+      const label = normalizeLine(button.getAttribute?.('aria-label') || '');
+      const match = label.match(/^Dismiss (.+) job$/);
+      if (match && match[1]) {
+        titles.add(match[1]);
+      }
+    }
+    return titles;
+  }
+
+  function isCardTitleParagraph(paragraph, dismissTitles) {
+    if (isEchoTitleParagraph(paragraph)) {
+      return true;
+    }
+    const candidates = [nodeText(paragraph), ...firstTwoSpanTexts(paragraph)];
+    return candidates.some((candidate) => {
+      const text = stripVerifiedBadge(candidate);
+      return Boolean(text) && dismissTitles.has(text);
+    });
+  }
+
+  function normalizedTitleCandidates(paragraph) {
+    return [nodeText(paragraph), ...firstTwoSpanTexts(paragraph)]
+      .map(stripVerifiedBadge)
+      .map((text) => text.replace(/^Selected,\s*/i, ''))
+      .filter(Boolean);
+  }
+
+  function isLocationText(text) {
+    return /,\s*[A-Z]{2}\b/.test(text)
+      || /\b(remote|hybrid|on-site|onsite|on site)\b/i.test(text)
+      || /\bUnited States\b/i.test(text)
+      || /\bGreater .+ Area\b/i.test(text);
+  }
+
+  // Same "narrowest ancestor containing this exact card's dismiss button"
+  // logic as `recentCardRoot()` in `captureRecentJobPostings()`, but returns
+  // the button itself (rather than marking the ancestor) so it can be clicked.
+  function cardDismissButton(titleParagraph) {
+    const titles = new Set(normalizedTitleCandidates(titleParagraph));
+    let ancestor = titleParagraph?.parentElement || null;
+    let levels = 0;
+    while (ancestor && levels < 12) {
+      if (typeof ancestor.querySelectorAll === 'function') {
+        const buttons = Array.from(ancestor.querySelectorAll('button[aria-label]'));
+        const match = buttons.find((button) => {
+          const label = normalizeLine(button.getAttribute?.('aria-label') || '');
+          const parsed = label.match(/^Dismiss (.+) job$/);
+          return Boolean(parsed && titles.has(parsed[1]));
+        });
+        if (match) {
+          return match;
+        }
+      }
+      ancestor = ancestor.parentElement || null;
+      levels += 1;
+    }
+    return null;
+  }
+
+  // Every card in document order, regardless of posting age. Company is read
+  // positionally (the <p> right after the title), same as `listCardListings()`.
+  function listAllCards(doc) {
+    const paragraphs = paragraphElements(doc);
+    const dismissTitles = dismissButtonTitles(doc);
+    const titleIndexes = [];
+    for (let index = 0; index < paragraphs.length; index += 1) {
+      if (isCardTitleParagraph(paragraphs[index], dismissTitles)) {
+        titleIndexes.push(index);
+      }
+    }
+
+    const cards = [];
+    for (let t = 0; t < titleIndexes.length; t += 1) {
+      const start = titleIndexes[t];
+      const candidate = normalizeLine(nodeText(paragraphs[start + 1]));
+      const company = (!candidate || isLocationText(candidate)) ? '' : candidate;
+      cards.push({ titleParagraph: paragraphs[start], company });
+    }
+    return cards;
+  }
+
+  const url = window.location.href;
+  const parsedUrl = new URL(url);
+  if (!isLinkedInHost(parsedUrl.hostname)) {
+    return {
+      ok: false,
+      reason: 'not_linkedin',
+      message: 'This page is not on LinkedIn.',
+      scanned: 0,
+      matched: 0,
+      dismissed: 0,
+      failed: 0
+    };
+  }
+
+  const blacklist = new Set(
+    (Array.isArray(companies) ? companies : [])
+      .map((name) => normalizeLine(name).toLowerCase())
+      .filter(Boolean)
+  );
+
+  const cards = listAllCards(document);
+
+  if (blacklist.size === 0) {
+    return { ok: true, scanned: cards.length, matched: 0, dismissed: 0, failed: 0, companies: [] };
+  }
+
+  let matched = 0;
+  let dismissed = 0;
+  let failed = 0;
+  const dismissedCompanies = [];
+  for (const card of cards) {
+    const normalizedCompany = normalizeLine(card.company).toLowerCase();
+    if (!normalizedCompany || !blacklist.has(normalizedCompany)) {
+      continue;
+    }
+    matched += 1;
+    const button = cardDismissButton(card.titleParagraph);
+    if (button && typeof button.click === 'function') {
+      button.click();
+      dismissed += 1;
+      dismissedCompanies.push(card.company);
+    } else {
+      failed += 1;
+    }
+  }
+
+  return {
+    ok: true,
+    scanned: cards.length,
+    matched,
+    dismissed,
+    failed,
+    companies: dismissedCompanies
+  };
+}
+
+// This function is injected on its own via `chrome.scripting.executeScript({
 // func: captureGenericPage })`, which serializes only this function's body —
 // see the note above `detailPageListing()` for why it can't call back into
 // `captureActivePage()` or share its helpers via closure. It is deliberately

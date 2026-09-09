@@ -105,6 +105,7 @@ globalThis.indexedDB = {
 };
 
 let scanResult = { ok: false, message: 'Popup smoke test scan.' };
+let hideBlacklistedResult = { ok: true, scanned: 0, matched: 0, dismissed: 0, failed: 0, companies: [] };
 let lastSessionState = null;
 let activeTab = {
   id: 1,
@@ -123,7 +124,10 @@ globalThis.chrome = {
     async update(id, values) { activeTab = { ...activeTab, ...values }; }
   },
   scripting: {
-    async executeScript() {
+    async executeScript({ func } = {}) {
+      if (func && func.name === 'dismissBlacklistedCompanyCards') {
+        return [{ result: hideBlacklistedResult }];
+      }
       return [{ result: scanResult }];
     }
   },
@@ -157,7 +161,8 @@ const buttonSelectors = [
   '#openJobSearchButton',
   '#openPremiumJobSearchButton',
   '#nextPageButton',
-  '#refreshRecentPostingsButton'
+  '#refreshRecentPostingsButton',
+  '#hideBlacklistedButton'
 ];
 
 for (const selector of buttonSelectors) {
@@ -218,5 +223,44 @@ await elements.get('#nextPageButton').listeners.get('click')();
 await elements.get('#nextPageButton').listeners.get('click')();
 triggeredCsvText = await (await searchCsv.getFile()).text();
 assert(triggeredCsvText.includes('Open Premium Job Search,50,0,2 hours or less,UNKNOWN'), 'Expected Next Page to update the last row with the next postsSeen value while preserving exactMatches.');
+
+await elements.get('#hideBlacklistedButton').listeners.get('click')();
+assert(
+  elements.get('#statusTitle')?.textContent === 'No Blacklist File',
+  `Expected a missing blacklist.txt to report "No Blacklist File", got ${elements.get('#statusTitle')?.textContent}.`
+);
+
+projectFiles.set('blacklist.txt', fakeWritableFile('   \n# comment only\n'));
+await elements.get('#hideBlacklistedButton').listeners.get('click')();
+assert(
+  elements.get('#statusTitle')?.textContent === 'Blacklist Empty',
+  `Expected a blank/comment-only blacklist.txt to report "Blacklist Empty", got ${elements.get('#statusTitle')?.textContent}.`
+);
+
+projectFiles.set('blacklist.txt', fakeWritableFile('Amazon\nMeta\n'));
+hideBlacklistedResult = { ok: true, scanned: 5, matched: 2, dismissed: 2, failed: 0, companies: ['Amazon', 'Amazon'] };
+await elements.get('#hideBlacklistedButton').listeners.get('click')();
+assert(
+  elements.get('#statusTitle')?.textContent === 'Blacklisted Postings Hidden',
+  `Expected matches to report "Blacklisted Postings Hidden", got ${elements.get('#statusTitle')?.textContent}.`
+);
+assert(
+  elements.get('#statusMessage')?.textContent.includes('Hid 2 postings'),
+  `Expected the dismissed count in the status message, got ${elements.get('#statusMessage')?.textContent}.`
+);
+
+hideBlacklistedResult = { ok: true, scanned: 5, matched: 0, dismissed: 0, failed: 0, companies: [] };
+await elements.get('#hideBlacklistedButton').listeners.get('click')();
+assert(
+  elements.get('#statusTitle')?.textContent === 'No Matches Found',
+  `Expected no matches to report "No Matches Found", got ${elements.get('#statusTitle')?.textContent}.`
+);
+
+hideBlacklistedResult = { ok: false, reason: 'not_linkedin', message: 'This page is not on LinkedIn.' };
+await elements.get('#hideBlacklistedButton').listeners.get('click')();
+assert(
+  elements.get('#statusTitle')?.textContent === 'Unsupported Page',
+  `Expected a non-LinkedIn tab to report "Unsupported Page", got ${elements.get('#statusTitle')?.textContent}.`
+);
 
 console.log('popup module smoke test passed');
