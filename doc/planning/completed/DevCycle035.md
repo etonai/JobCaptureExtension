@@ -1,6 +1,6 @@
 # DevCycle 035: Blacklist-Based Hiding of Recent Postings
 
-**Status:** Work Complete
+**Status:** VERIFIED
 **Start Date:** 2026-09-09
 **Target Completion:** 2026-09-09
 **Focus:** Let the user hide all currently-listed postings from blacklisted companies by clicking LinkedIn's own dismiss ("X") button on each matching card.
