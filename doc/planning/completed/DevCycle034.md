@@ -1,6 +1,6 @@
 # DevCycle 034: Add a Manual `Notes` Column to `search-tracking.csv`
 
-**Status:** Work Complete
+**Status:** Verified
 **Start Date:** 2026-09-09
 **Target Completion:** 2026-09-11
 **Focus:** Add a `notes` column to `search-tracking.csv` that the extension never writes to, so the user can enter free-text notes by hand without the extension ever erasing them.
@@ -52,13 +52,13 @@ Relevant file: `extension/shared/saveListing.js`. `updateLastSearchTrackingRow()
 
 ### Phase 3: Documentation and Verification
 
-**Status:** Work Complete; manual verification pending
+**Status:** Verified
 
 - [x] Document the `notes` column in `extension/README.md`: it is manually maintained by the user, the extension only ever writes a blank default for new/migrated rows, and it is never read or interpreted by the extension.
 - [x] Bump the extension version.
 - [x] Add/extend automated tests in `extension/tests/persistence.test.mjs` covering: new-row append with blank notes, `updateLastSearchTrackingRow()` preserving an existing non-empty notes value (including one containing a comma and an embedded newline) across postsSeen/recentPostings/exactMatches updates, and migration from each of the 2-, 3-, 5-, and 6-column schemas to 7 columns.
 - [x] Run all extension test suites.
-- [ ] Manually verify: hand-edit `Notes` for a row in a real `search-tracking.csv`, trigger a Recent Postings refresh and a Next Page action against that search, and confirm the hand-entered text is unchanged afterward.
+- [x] Manually verify: hand-edit `Notes` for a row in a real `search-tracking.csv`, trigger a Recent Postings refresh and a Next Page action against that search, and confirm the hand-entered text is unchanged afterward. Confirmed by the user.
 
 **Technical Notes:**
 Manual verification matters here specifically because the automated tests exercise the in-memory/mock project-folder implementation used elsewhere in `persistence.test.mjs`; confirming the behavior against a real file on disk (and ideally opened in a spreadsheet app, since some editors rewrite line endings or quoting) reduces the risk of a subtle format mismatch.
@@ -85,11 +85,9 @@ Manual verification matters here specifically because the automated tests exerci
 
 ## Completion Summary
 
-*Fill in when the cycle closes. Move this document to `doc/planning/completed/` afterward.*
-
 **Completion Date:** 2026-09-09
-**Phases Completed:** All implementation phases; live/manual verification against a real `search-tracking.csv` remains pending
-**Work Deferred:** Manual verification (hand-editing a real CSV's Notes column and confirming Refresh/Next Page leave it unchanged). User approval is required before the cycle can be marked Verified.
+**Phases Completed:** All
+**Work Deferred:** None
 
 **Accomplishments:**
 - Added `notes` as a seventh, trailing column in the search-tracking CSV schema (`SEARCH_CSV_COLUMNS` in `extension/shared/csv.js`), always blank for new/migrated rows.
